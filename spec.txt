@@ -1,0 +1,6842 @@
+---
+title: CommonMark Spec
+author: John MacFarlane
+version: 0.18
+date: 2015-03-03
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+中文翻译：[Ivan Yan](https://github.com/yanxyz/commonmark-spec)
+
+# 前言
+
+## 什么是 Markdown?
+
+Markdown 是一种纯文本格式，用来撰写结构化文档。它基于 email 和 usenet
+的格式化标记，由 John Gruber 在 2004 年创造。他用 perl
+实现了第一个 Markdown 到 HTML 的转换器，迅速地在网络上普及开来。
+到 2014 年已有几十种不同语言的实现。
+一些扩展了 Markdown 语法，比如脚注、定义列表、表格等，
+一些可以将 Markdown 转换到 LaTeX 等多种格式。
+
+## 为什么需要规范?
+
+John Gruber 的
+[Markdown 语法说明](http://daringfireball.net/projects/markdown/syntax)
+没有清晰的定义 Markdown 语法，下面列举一些问题：
+
+1.  子列表需要缩进多少？语法说明指出列表项内的段落需要缩进四个空格，
+    但是对于子列表没有明确说明。我们自然地以为子列表也需要缩进，可是
+    `Markdown.pl` 不需要。这不是极端情况，
+    而且各实现在这个上面的分歧常常让用户惊奇。
+    见 [John Gruber 的评论](http://article.gmane.org/gmane.text.markdown.general/1997)。
+
+2.  块级引用或标题前是否需要空行？多数实现不要求。但是对于硬换行的文本
+    可能会导致问题，解析也模棱两可。注意一些实现可以将标题放到块级引用内，
+    其它则不行。John Gruber 曾提到
+    [倾向于需要空行](http://article.gmane.org/gmane.text.markdown.general/2146)。
+
+3.  缩进式代码块前是否需要空行？`Markdown.pl` 需要，
+    但是语法说明没有提到，而一些实现不需要。
+
+    ``` markdown
+    paragraph
+        code?
+    ```
+
+4.  如何确定列表项包含在 `<p>` 标签内？列表可以半紧半松吗？
+    这样的列表怎么做？
+
+    ``` markdown
+    1. one
+
+    2. two
+    3. three
+    ```
+
+    或这样？
+
+    ``` markdown
+    1.  one
+        - a
+
+        - b
+    2.  two
+    ```
+
+    John Gruber 的相关评论见
+    [这里](http://article.gmane.org/gmane.text.markdown.general/2554)。
+
+5.  列表标记可以缩进吗？有序列表的标记可以右对齐吗？
+
+    ``` markdown
+     8. item 1
+     9. item 2
+    10. item 2a
+    ```
+
+6.  下面是一个列表，它的第二项包含水平线，还是被水平线隔开的两个列表？
+
+    ``` markdown
+    * a
+    * * * * *
+    * b
+    ```
+
+7.  当列表标记从数字变成无序标记时，结果是一个还是两个列表？
+    语法说明说是两个，而 `Markdown.pl` 及许多其它的实现只生成一个。
+
+    ``` markdown
+    1. fee
+    2. fie
+    -  foe
+    -  fum
+    ```
+
+8.  内联元素标记的优先级？例如下面是链接还是行内代码？
+
+    ``` markdown
+    [a backtick (`)](/url) and [another backtick (`)](/url).
+    ```
+
+9.  强调与着重强调的优先级？例如下面如何解析？
+
+    ``` markdown
+    *foo *bar* baz*
+    ```
+
+10. 块与内联结构的优先级？例如下面如何解析？
+
+    ``` markdown
+    - `a long code span can contain a hyphen like this
+      - and it can screw things up`
+    ```
+
+11. 列表项可以包含标题吗？`Markdown.pl` 不允许这样，
+    但是允许块引用可以包含标题。
+
+    ``` markdown
+    - # Heading
+    ```
+
+12. 列表项可以为空吗?
+
+    ``` markdown
+    * a
+    *
+    * b
+    ```
+
+13. 块引用或列表项可以包含链接引用吗？
+
+    ``` markdown
+    > Blockquote [foo].
+    >
+    > [foo]: /url
+    ```
+
+14. 如果一个链接引用有多个定义，那么该用哪个？
+
+    ``` markdown
+    [foo]: /url1
+    [foo]: /url2
+
+    [foo][]
+    ```
+
+在缺少规范的情况下，早期的实现大都参考 `Markdown.pl` 来处理这些含糊的地方。
+但是 `Markdown.pl` 有较多缺陷，许多情况下的结果明显不好，因此它不足以为范本。
+
+由于没有清晰的规范，各种实现之间有分歧，结果用户常常惊奇的发现文档在一个
+系统上是这样的（比如说 github wiki），在另一个系统上又是另样的（比如说
+用 pandoc 转换到 docbook）。更糟的是，由于 Markdown 没有定义语法错误，
+常常不能立即发现这些分歧。
+
+## 关于本文档
+
+本文档尝试清晰的定义 Markdown 语法。文档包含许多示例，Markdown 与 HTML
+并排对照，也用作一致性测试。可以运行 `spec_tests.py` 来对比测试各
+Markdown 实现：
+
+    python test/spec_tests.py --spec spec.txt --program PROGRAM
+
+本文档描述了 Markdown 如何解析为一个抽象语法树，可以用 HTML 之外
+的语法树表示法，不过 HTML 能够呈现结构差异，并且选择 HTML 后，
+测试时便不用写抽象语法树渲染器。
+
+本文档由一个纯文本文件 `spec.txt` 生成，用 Markdown 写成，有个小的扩展：
+并排比较。可以用脚本 `tools/makespec.py` 把它转换为 HTML 或者 CommonMark，
+CommonMark 可以再转换成其它格式。
+
+示例中字符 `→` 代表制表符。
+
+# 预备
+
+## 字符与行
+
+任意一串[字符]都是有效的 CommonMark 文档。
+
+一个 [字符](@character) 是一个 unicode 代码点。本规范不指定编码，
+行视为由字符而不是字节组成。某个解析器可能只处理某个编码。
+
+一个[行](@line)是一串零或多个的[字符]，以及[行结束符]或文档结尾。
+
+[行结束符](@line-ending) 是换行(`U+000A`)、回车(`U+000D`) 或回车换行，
+取决于操作系统。
+
+出于安全原因，解析器需要删除或替换字符 `U+0000`。
+
+不包含字符，或者只包含空格(`U+0020`) 或制表符(`U+0009`) 的行称为
+[空行](@blank-line)。
+
+本规范使用下面字符类定义：
+
+[空白字符](@whitespace-character) 是空格(`U+0020`),
+制表符(`U+0009`), 换行 (`U+000A`), 竖向制表符(`U+000B`),
+换页(`U+000C`), 或回车(`U+000D`)。
+
+[空白](@whitespace) 是一串一或多个[空白字符]。
+
+[unicode 空白字符](@unicode-whitespace-character) 是一个 unicode `Zs`
+类中的代码点，或制表符(`U+0009`), 回车(`U+000D`), 换行(`U+000A`)
+或换页(`U+000C`)。
+
+[Unicode 空白](@unicode-whitespace)是一串一或多个[unicode 空白字符]。
+
+[非空白字符](@non-space-character)是除 `U+0020` 之外的字符。
+
+[ASCII 标点符号](@ascii-punctuation-character)是
+`!`, `"`, `#`, `$`, `%`, `&`, `'`, `(`, `)`,
+`*`, `+`, `,`, `-`, `.`, `/`, `:`, `;`, `<`, `=`, `>`, `?`, `@`,
+`[`, `\`, `]`, `^`, `_`, `` ` ``, `{`, `|`, `}`, 或 `~`。
+
+[标点符号](@punctuation-character) 是 [ASCII 标点符号]或 unicode 类
+`Pc`, `Pd`, `Pe`, `Pf`, `Pi`, `Po`, 或 `Ps` 中的代码点。
+
+## 制表符
+
+行内的制表符转为四个空格，制表位为四个字符宽度：
+
+.
+→foo→baz→→bim
+.
+<pre><code>foo baz     bim
+</code></pre>
+.
+
+.
+    a→a
+    ὐ→a
+.
+<pre><code>a   a
+ὐ   a
+</code></pre>
+.
+
+# 块与内联元素
+
+文档可视为连续的[块](@block)，比如：段落、块引用、标题、水平线、
+代码块。块可以包含其它块或[内联元素](@inline)：单词、空格、链接、
+强调、图片、内联代码。
+
+## 优先级
+
+块始终优先于内联元素。例如下面列表，包含两个列表项，而不是一个包含
+内联代码的列表项：
+
+.
+- `one
+- two`
+.
+<ul>
+<li>`one</li>
+<li>two`</li>
+</ul>
+.
+
+这意味着解析过程可分为两步：一，块结构；二，段落、标题及其它块内的
+文本行，解析出内联元素。第二步的引用链接定义，需要等到第一步解析完成。
+注意第一步只能串行解析行，但是第二步可并行，因为解析一个块内的内联元素不
+影响解析其它块内的内联元素。
+
+## 容器块和叶块
+
+块分为两类：[容器块](@container-block)和 [叶块](@leaf-block)。
+前者可以包含其它块，后者不能。
+
+# 叶块
+
+这节描述各类叶块。
+
+## 水平线
+
+由0-3 个空格的缩进及三或多个 `-`, `_`, `*` 字符组成的行，形成
+[水平线](@horizontal-rule)。几个字符一样，每个字符后面可以有任意的空格。
+
+.
+***
+---
+___
+.
+<hr />
+<hr />
+<hr />
+.
+
+字符错误：
+
+.
++++
+.
+<p>+++</p>
+.
+
+.
+===
+.
+<p>===</p>
+.
+
+字符不够：
+
+.
+--
+**
+__
+.
+<p>--
+**
+__</p>
+.
+
+可以缩进 1-3 个空格：
+
+.
+ ***
+  ***
+   ***
+.
+<hr />
+<hr />
+<hr />
+.
+
+缩进四个空格就多了：
+
+.
+    ***
+.
+<pre><code>***
+</code></pre>
+.
+
+.
+Foo
+    ***
+.
+<p>Foo
+***</p>
+.
+
+可以用三个以上的字符：
+
+.
+_____________________________________
+.
+<hr />
+.
+
+字符之间可以有空格：
+
+.
+ - - -
+.
+<hr />
+.
+
+.
+ **  * ** * ** * **
+.
+<hr />
+.
+
+.
+-     -      -      -
+.
+<hr />
+.
+
+末尾可以有空格：
+
+.
+- - - -
+.
+<hr />
+.
+
+但是开头或末尾不能有其它的字符：
+
+.
+_ _ _ _ a
+
+a------
+.
+<p>_ _ _ _ a</p>
+<p>a------</p>
+.
+
+[非空格字符]要求一样，下面便不是水平线：
+
+.
+ *-*
+.
+<p><em>-</em></p>
+.
+
+水平线前后不需要空行：
+
+.
+- foo
+***
+- bar
+.
+<ul>
+<li>foo</li>
+</ul>
+<hr />
+<ul>
+<li>bar</li>
+</ul>
+.
+
+水平线可以中断段落：
+
+.
+Foo
+***
+bar
+.
+<p>Foo</p>
+<hr />
+<p>bar</p>
+.
+
+如果一行 `-` 可以为水平线，也可以为[Setext 式标题]的底线，则优先考虑
+[Setext 式标题]。因此，下面是[Setext 式标题]，而不是跟着水平线
+的段落：
+
+.
+Foo
+---
+bar
+.
+<h2>Foo</h2>
+<p>bar</p>
+.
+
+水平线优先于列表项：
+
+.
+* Foo
+* * *
+* Bar
+.
+<ul>
+<li>Foo</li>
+</ul>
+<hr />
+<ul>
+<li>Bar</li>
+</ul>
+.
+
+如果想在列表项中插入水平线，那么使用不同的项目符号：
+
+.
+- Foo
+- * * *
+.
+<ul>
+<li>Foo</li>
+<li><hr /></li>
+</ul>
+.
+
+## ATX 式标题
+
+[ATX 式标题](@atx-header)由开始序列、标题内容、关闭序列组成。
+开始序列为 1-6 个 `#`， 可以缩进 1-3个空格。
+它的后面不能直接跟着[非空白字符]。
+关闭序列可选，为任意个 `#`，它的前面必须有一个空格，后面只能是空格。
+标题的原生内容在解析前删除首尾空格。标题的级别等于开始序列 `#` 的个数。
+
+简单标题:
+
+.
+# foo
+## foo
+### foo
+#### foo
+##### foo
+###### foo
+.
+<h1>foo</h1>
+<h2>foo</h2>
+<h3>foo</h3>
+<h4>foo</h4>
+<h5>foo</h5>
+<h6>foo</h6>
+.
+
+超过六个 `#` 不是标题:
+
+.
+####### foo
+.
+<p>####### foo</p>
+.
+
+`#` 字符与标题内容之间需要一个空格。注意目前许多实现不要求这样。
+不过 [ATX 实现](http://www.aaronsw.com/2002/atx/atx.py)需要，并且
+可以避免下面情形被解析为标题：
+
+.
+#5 bolt
+.
+<p>#5 bolt</p>
+.
+
+下例不是标题，因为第一个 `#` 被转义:
+
+.
+\## foo
+.
+<p>## foo</p>
+.
+
+标题内容解析为内联元素：
+
+.
+# foo *bar* \*baz\*
+.
+<h1>foo <em>bar</em> *baz*</h1>
+.
+
+解析时忽略内容的首尾空白：
+
+.
+#                  foo
+.
+<h1>foo</h1>
+.
+
+可以缩进 1-3 个空格：
+
+.
+ ### foo
+  ## foo
+   # foo
+.
+<h3>foo</h3>
+<h2>foo</h2>
+<h1>foo</h1>
+.
+
+缩进四个空格就多了：
+
+.
+    # foo
+.
+<pre><code># foo
+</code></pre>
+.
+
+.
+foo
+    # bar
+.
+<p>foo
+# bar</p>
+.
+
+关闭序列可选：
+
+.
+## foo ##
+  ###   bar    ###
+.
+<h2>foo</h2>
+<h3>bar</h3>
+.
+
+它的长度不需要与开始序列一致:
+
+.
+# foo ##################################
+##### foo ##
+.
+<h1>foo</h1>
+<h5>foo</h5>
+.
+
+关闭序列后面可以有空格：
+
+.
+### foo ###
+.
+<h3>foo</h3>
+.
+
+后面跟着[非空白字符]的 `#` 序列不是关闭序列，视为标题内容的一部分：
+
+.
+### foo ### b
+.
+<h3>foo ### b</h3>
+.
+
+被反斜杠转义的 `#` 字符计入关闭序列：
+
+.
+### foo \###
+## foo \#\##
+# foo \#
+.
+<h3>foo #</h3>
+<h2>foo ##</h2>
+<h1>foo #</h1>
+.
+
+ATX 式标题前后不需要空行，它可以中断段落：
+
+.
+****
+## foo
+****
+.
+<hr />
+<h2>foo</h2>
+<hr />
+.
+
+.
+Foo bar
+# baz
+Bar foo
+.
+<p>Foo bar</p>
+<h1>baz</h1>
+<p>Bar foo</p>
+.
+
+ATX 式标题可以为空：
+
+.
+##
+#
+### ###
+.
+<h2></h2>
+<h1></h1>
+<h3></h3>
+.
+
+## Setext 式标题
+
+[Setext 式标题](@setext-header)由一行文本（至少有一个[非空白字符]，
+至多缩进三个空格）及 [setext 式标题底线]组成。
+
+[setext 式标题底线](@setext-header-underline)是一串 `=` 或 `-` 字符，
+至多缩进三个空格，末尾可以有任意个空格。如果一个包含单个 `-` 行
+能解析为列表项，则不能解析为标题底线。
+
+[setext 式标题底线]使用 `=` 则是第一级标题，使用 `-` 字符则是第二级
+标题。第一行按内联元素解析的结果是标题的内容。
+
+通常 Setext 式标题前后不需要空行。不过它不能中断段落，所以当它后面跟着
+段落时，它们之间需要空行。
+
+简单示例：
+
+.
+Foo *bar*
+=========
+
+Foo *bar*
+---------
+.
+<h1>Foo <em>bar</em></h1>
+<h2>Foo <em>bar</em></h2>
+.
+
+底线长度任意：
+
+.
+Foo
+-------------------------
+
+Foo
+=
+.
+<h2>Foo</h2>
+<h1>Foo</h1>
+.
+
+标题内容可以缩进 1-3 个空格，并且不需要与底线对齐：
+
+.
+   Foo
+---
+
+  Foo
+-----
+
+  Foo
+  ===
+.
+<h2>Foo</h2>
+<h2>Foo</h2>
+<h1>Foo</h1>
+.
+
+缩进四个空格就多了：
+
+.
+    Foo
+    ---
+
+    Foo
+---
+.
+<pre><code>Foo
+---
+
+Foo
+</code></pre>
+<hr />
+.
+
+底线可以缩进 1-3 个空格，并且末尾可以有空格：
+
+.
+Foo
+   ----
+.
+<h2>Foo</h2>
+.
+
+缩进四个空格就多了：
+
+.
+Foo
+     ---
+.
+<p>Foo
+---</p>
+.
+
+底线内部不能有空格：
+
+.
+Foo
+= =
+
+Foo
+--- -
+.
+<p>Foo
+= =</p>
+<p>Foo</p>
+<hr />
+.
+
+内容行末尾的空格不会导致换行：
+
+.
+Foo
+-----
+.
+<h2>Foo</h2>
+.
+
+反斜杠也不会：
+
+.
+Foo\
+----
+.
+<h2>Foo\</h2>
+.
+
+因为块结构优先于内联结构，所以下面的是 Setext 式标题：
+
+.
+`Foo
+----
+`
+
+<a title="a lot
+---
+of dashes"/>
+.
+<h2>`Foo</h2>
+<p>`</p>
+<h2>&lt;a title=&quot;a lot</h2>
+<p>of dashes&quot;/&gt;</p>
+.
+
+底线不能是列表黄或块引用的[懒惰连续行]：
+
+.
+> Foo
+---
+.
+<blockquote>
+<p>Foo</p>
+</blockquote>
+<hr />
+.
+
+Setext 式标题不能中断段落：
+
+.
+Foo
+Bar
+---
+
+Foo
+Bar
+===
+.
+<p>Foo
+Bar</p>
+<hr />
+<p>Foo
+Bar
+===</p>
+.
+
+不过通过前后不需要空行：
+
+.
+---
+Foo
+---
+Bar
+---
+Baz
+.
+<hr />
+<h2>Foo</h2>
+<h2>Bar</h2>
+<p>Baz</p>
+.
+
+Setext 式标题不能为空：
+
+.
+
+====
+.
+<p>====</p>
+.
+
+内容行不能解析为段落之外的块结构。故下例虚线行解析为水平线：
+
+.
+---
+---
+.
+<hr />
+<hr />
+.
+
+.
+- foo
+-----
+.
+<ul>
+<li>foo</li>
+</ul>
+<hr />
+.
+
+.
+    foo
+---
+.
+<pre><code>foo
+</code></pre>
+<hr />
+.
+
+.
+> foo
+-----
+.
+<blockquote>
+<p>foo</p>
+</blockquote>
+<hr />
+.
+
+内容行想包含 `> foo`，使用反斜杠转义：
+
+.
+\> foo
+------
+.
+<h2>&gt; foo</h2>
+.
+
+
+## 缩进式代码块
+
+[缩进式代码块](@indented-code-block)由空行隔开的数个[缩进块]组成。
+[缩进块](@indented-chunk)是数个非空行，每行缩进四个或多个空格。代码块的内容
+是这些行的字面内容，包含末尾的[行结束符]，不包含四个空格的缩进。
+缩进式代码块没有[信息字符串]。
+
+缩进式代码块不能中断段落，当它跟在段落后面时，两者之间需要空行。
+不过，当它在段落前面时，两者之间不需要用空行。
+
+.
+    a simple
+      indented code block
+.
+<pre><code>a simple
+  indented code block
+</code></pre>
+.
+
+内容是字面上的，不会以 Markdown 语法解析：
+
+.
+    <a/>
+    *hi*
+
+    - one
+.
+<pre><code>&lt;a/&gt;
+*hi*
+
+- one
+</code></pre>
+.
+
+下面三块以空行隔开：
+
+.
+    chunk1
+
+    chunk2
+
+
+
+
+    chunk3
+.
+<pre><code>chunk1
+
+chunk2
+
+
+
+chunk3
+</code></pre>
+.
+
+头部四个空格之后的空格，甚至是内部的空行，计入代码块的内容：
+
+.
+    chunk1
+
+      chunk2
+.
+<pre><code>chunk1
+
+  chunk2
+</code></pre>
+.
+
+缩进式代码块不能中断段落，这样可以悬挂缩进等等。
+
+.
+Foo
+    bar
+
+.
+<p>Foo
+bar</p>
+.
+
+不过，头部少于四个空格的非空行将直接结束代码块。故段落可以紧跟在它后面：
+
+.
+    foo
+bar
+.
+<pre><code>foo
+</code></pre>
+<p>bar</p>
+.
+
+缩进式代码块可直接位于其它类型块的前后：
+
+.
+# Header
+    foo
+Header
+------
+    foo
+----
+.
+<h1>Header</h1>
+<pre><code>foo
+</code></pre>
+<h2>Header</h2>
+<pre><code>foo
+</code></pre>
+<hr />
+.
+
+第一行可以缩进四个以上空格：
+
+.
+        foo
+    bar
+.
+<pre><code>    foo
+bar
+</code></pre>
+.
+
+缩进式代码块前后的空行不计入它的内容：
+
+.
+
+
+    foo
+
+
+.
+<pre><code>foo
+</code></pre>
+.
+
+尾部空格计入代码块内容：
+
+.
+    foo
+.
+<pre><code>foo
+</code></pre>
+.
+
+
+## 围栏式代码块
+
+[代码栅栏](@code-fence)由至少三个连续的反引号(`` ` ``)或波浪号(`~`)组成。
+两者不能混合。
+[围栏式代码块](@fenced-code-block)以代码栅栏开始，最多可缩进三个空格。
+
+开始栅栏行可以包含一些文本，去掉它的前后空白后称为
+[信息字符串](@info-string)。信息字符串不包含反引号，防止
+内联代码被解析为围栏式代码块的开始。
+
+代码块的内容为开始栅栏之后的行，直到结束栅栏。结束栅栏与开始栅栏的字符一致，
+至少相同个数。如果开始栅栏缩进 N 个空格，则每个内容行会删除 N 个空格缩进，
+没有缩进则保持不变，少于 N 个则删除所有缩进。
+
+结束栅栏最多可以缩进三个空格，后面可以跟空格，不过将忽略。如果到了包含块
+或文档的结尾没有结束栅栏，则代码块包含开始栅栏与包含块或文档的结尾之间
+所有的行。备选规范可能要求在没有结束栅栏的情况下回溯，不过这将降低解析
+的效率。而且本规范在这里似乎没有实际的不妥。
+
+围栏式代码块可中断段落，它的前后不需要空行。
+
+栅栏行的内容按字面对待，而不会解析为内联元素。[信息字符串]的第一个单词
+用于指定代码的语言，并作为 `code` 标签的 `class` 值。本规范不指定如何处理
+[信息字符串]的办法。
+
+下面示例使用反引号:
+
+.
+```
+<
+ >
+```
+.
+<pre><code>&lt;
+ &gt;
+</code></pre>
+.
+
+使用波浪号:
+
+.
+~~~
+<
+ >
+~~~
+.
+<pre><code>&lt;
+ &gt;
+</code></pre>
+.
+
+结束栅栏必须使用与开始栅栏一样的字符：
+
+.
+```
+aaa
+~~~
+```
+.
+<pre><code>aaa
+~~~
+</code></pre>
+.
+
+.
+~~~
+aaa
+```
+~~~
+.
+<pre><code>aaa
+```
+</code></pre>
+.
+
+结束栅栏必须与开始栅栏一样长：
+
+.
+````
+aaa
+```
+``````
+.
+<pre><code>aaa
+```
+</code></pre>
+.
+
+.
+~~~~
+aaa
+~~~
+~~~~
+.
+<pre><code>aaa
+~~~
+</code></pre>
+.
+
+没有关闭的代码块由文档结尾关闭：
+
+.
+```
+.
+<pre><code></code></pre>
+.
+
+.
+`````
+
+```
+aaa
+.
+<pre><code>
+```
+aaa
+</code></pre>
+.
+
+代码块的内容可以全部是空行：
+
+.
+```
+
+
+```
+.
+<pre><code>
+
+</code></pre>
+.
+
+代码块可以为空：
+
+.
+```
+```
+.
+<pre><code></code></pre>
+.
+
+栅栏可缩进。如果开始栅栏缩进，内容行会删除相同数量的缩进：
+
+.
+ ```
+ aaa
+aaa
+```
+.
+<pre><code>aaa
+aaa
+</code></pre>
+.
+
+.
+  ```
+aaa
+  aaa
+aaa
+  ```
+.
+<pre><code>aaa
+aaa
+aaa
+</code></pre>
+.
+
+.
+   ```
+   aaa
+    aaa
+  aaa
+   ```
+.
+<pre><code>aaa
+ aaa
+aaa
+</code></pre>
+.
+
+四个空格缩进生成缩进式代码块：
+
+.
+    ```
+    aaa
+    ```
+.
+<pre><code>```
+aaa
+```
+</code></pre>
+.
+
+结束栅栏可缩进 0-3 个空格，不必与开始栅栏缩进一致：
+
+.
+```
+aaa
+  ```
+.
+<pre><code>aaa
+</code></pre>
+.
+
+.
+   ```
+aaa
+  ```
+.
+<pre><code>aaa
+</code></pre>
+.
+
+下例不是结束栅栏，因为缩进了四个空格：
+
+.
+```
+aaa
+    ```
+.
+<pre><code>aaa
+    ```
+</code></pre>
+.
+
+
+栅栏内部不能有空格：
+
+.
+``` ```
+aaa
+.
+<p><code></code>
+aaa</p>
+.
+
+.
+~~~~~~
+aaa
+~~~ ~~
+.
+<pre><code>aaa
+~~~ ~~
+</code></pre>
+.
+
+围栏式代码块可中断段落。直接跟在段落后，不需要用空行隔开：
+
+.
+foo
+```
+bar
+```
+baz
+.
+<p>foo</p>
+<pre><code>bar
+</code></pre>
+<p>baz</p>
+.
+
+其它块也可以直接出现在围栏式代码块前后，不需要用空行隔开：
+
+.
+foo
+---
+~~~
+bar
+~~~
+# baz
+.
+<h2>foo</h2>
+<pre><code>bar
+</code></pre>
+<h1>baz</h1>
+.
+
+开始栅栏后可以放[信息字符串]，它的前后空格将被删除，第一个单词将加上前缀
+`language-`，用作标签 `pre` 内 `code` 的 `class` 值。
+
+.
+```ruby
+def foo(x)
+  return 3
+end
+```
+.
+<pre><code class="language-ruby">def foo(x)
+  return 3
+end
+</code></pre>
+.
+
+.
+~~~~    ruby startline=3 $%@#$
+def foo(x)
+  return 3
+end
+~~~~~~~
+.
+<pre><code class="language-ruby">def foo(x)
+  return 3
+end
+</code></pre>
+.
+
+.
+````;
+````
+.
+<pre><code class="language-;"></code></pre>
+.
+
+使用反引号的代码块，[信息字符串]不能包含反引号：
+
+.
+``` aa ```
+foo
+.
+<p><code>aa</code>
+foo</p>
+.
+
+结束栅栏不能有[信息字符串]：
+
+.
+```
+``` aaa
+```
+.
+<pre><code>``` aaa
+</code></pre>
+.
+
+## HTML 块
+
+[HTML 块标签](@html-block-tag)是[开始标签]或[结束标签]，标签名字不区分
+大小写，有这些：
+`article`, `header`, `aside`, `hgroup`, `blockquote`, `hr`, `iframe`,
+`body`, `li`, `map`, `button`, `object`, `canvas`, `ol`, `caption`,
+`output`, `col`, `p`, `colgroup`, `pre`, `dd`, `progress`, `div`,
+`section`, `dl`, `table`, `td`, `dt`, `tbody`, `embed`, `textarea`,
+`fieldset`, `tfoot`, `figcaption`, `th`, `figure`, `thead`, `footer`,
+`tr`, `form`, `ul`, `h1`, `h2`, `h3`, `h4`, `h5`, `h6`, `video`,
+`script`, `style`.
+
+[HTML 块](@html-block) 以[HTML 块标签]、[HTML 注释]、[处理指令]、
+[声明]或[CDATA]开始，结束于[空行]或输入结束。开始行最多可缩进三个空格，
+后续行可任意缩进。HTML 块的内容按原生 HTML 处理，输出时不会转义。
+
+示例：
+
+.
+<table>
+  <tr>
+    <td>
+           hi
+    </td>
+  </tr>
+</table>
+
+okay.
+.
+<table>
+  <tr>
+    <td>
+           hi
+    </td>
+  </tr>
+</table>
+<p>okay.</p>
+.
+
+.
+ <div>
+  *hello*
+         <foo><a>
+.
+ <div>
+  *hello*
+         <foo><a>
+.
+
+下面两个 HTML 块之间有一个 Markdown 段落：
+
+.
+<DIV CLASS="foo">
+
+*Markdown*
+
+</DIV>
+.
+<DIV CLASS="foo">
+<p><em>Markdown</em></p>
+</DIV>
+.
+
+下面似乎是 Markdown 代码块，实际上是 HTML 块的一部分，一直到
+空行或文档结束：
+
+.
+<div></div>
+``` c
+int x = 33;
+```
+.
+<div></div>
+``` c
+int x = 33;
+```
+.
+
+注释：
+
+.
+<!-- Foo
+bar
+   baz -->
+.
+<!-- Foo
+bar
+   baz -->
+.
+
+处理指令：
+
+.
+<?php
+  echo '>';
+?>
+.
+<?php
+  echo '>';
+?>
+.
+
+CDATA:
+
+.
+<![CDATA[
+function matchwo(a,b)
+{
+if (a < b && a < 0) then
+  {
+  return 1;
+  }
+else
+  {
+  return 0;
+  }
+}
+]]>
+.
+<![CDATA[
+function matchwo(a,b)
+{
+if (a < b && a < 0) then
+  {
+  return 1;
+  }
+else
+  {
+  return 0;
+  }
+}
+]]>
+.
+
+开始标签可以缩进 1-3 个空格，不能是 4 个：
+
+.
+  <!-- foo -->
+
+    <!-- foo -->
+.
+  <!-- foo -->
+<pre><code>&lt;!-- foo --&gt;
+</code></pre>
+.
+
+HTML 块可中断段落，前面不需要空行：
+
+.
+Foo
+<div>
+bar
+</div>
+.
+<p>Foo</p>
+<div>
+bar
+</div>
+.
+
+不过后面的空行始终需要，除非是在文档末尾：
+
+.
+<div>
+bar
+</div>
+*foo*
+.
+<div>
+bar
+</div>
+*foo*
+.
+
+不完整的 HTML 块标签也可开始一个 HTML 块：
+
+.
+<div class
+foo
+.
+<div class
+foo
+.
+
+本规则不同于 John Gruber 的 Markdown 语法：
+
+> 唯一的限制是块级 HTML元素，例如 `<div>`, `<table>`, `<pre>`, `<p>` 等，
+> 必须用空行与周围内容隔开，并且开始与结束标签不能缩进。
+
+Gruber 的规则在某种程度上限制更严：
+
+- HTML 块前面需要空行。
+- 开始标签不能缩进。
+- 需要对应的结束标签，且不能缩进。
+
+实际上多数 Markdown 实现，包括 Gruber 自己的 perl 实现，没有遵守这些限制。
+
+不过，Gruber 的规则在一点上较宽松，允许 HTML 块内有空行，而本文档禁止。
+有两个原因。一，不需要解析结束标签，不然代价高，需要从文档末尾反溯。
+二，在 HTML 标签内插入 Markdown 内容将变得简单且灵活，只需用空行隔开：
+
+.
+<div>
+
+*Emphasized* text.
+
+</div>
+.
+<div>
+<p><em>Emphasized</em> text.</p>
+</div>
+.
+
+对比：
+
+.
+<div>
+*Emphasized* text.
+</div>
+.
+<div>
+*Emphasized* text.
+</div>
+.
+
+有些 Markdown 实现制定了一种规则，若开始标签有属性 `markdown=1`，
+则解析标签内部的文本。同样的效果比起来，本规范似乎更简单优雅，
+也更容易解析。
+
+主要的潜在缺点是不能 100% 的粘贴 HTML 到 Markdown 文档中。不过，
+在多数情况下不会有问题，因为 HTML 中的空行后面通常跟着的是 HTML
+标签。例如：
+
+.
+<table>
+
+<tr>
+
+<td>
+Hi
+</td>
+
+</tr>
+
+</table>
+.
+<table>
+<tr>
+<td>
+Hi
+</td>
+</tr>
+</table>
+.
+
+而且空行通常不必要，可以删除，`<pre>` 标签内除外，可用 `&#10;`
+替换空行。
+
+因此本规则没有重大的损失。
+
+## 链接引用定义
+
+[链接引用定义](@link-reference-definition)由[链接标签]、冒号(`:`)、可选的
+[空白]、[链接目标]、可选的[空白]及可选的[链接标题]组成。空白可包括
+[行结束符]。链接标题与目标必须用空白隔开。[非空白字符]不可出现。
+
+链接引用定义不对应于某个结构元素。实际上它定义了一个标签，以用于在文档
+其它地方的[引用链接]及引用类型[图像]。它可以出现在引用链接的前面或后面。
+
+.
+[foo]: /url "title"
+
+[foo]
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+.
+   [foo]:
+      /url
+           'the title'
+
+[foo]
+.
+<p><a href="/url" title="the title">foo</a></p>
+.
+
+.
+[Foo*bar\]]:my_(url) 'title (with parens)'
+
+[Foo*bar\]]
+.
+<p><a href="my_(url)" title="title (with parens)">Foo*bar]</a></p>
+.
+
+.
+[Foo bar]:
+<my url>
+'title'
+
+[Foo bar]
+.
+<p><a href="my%20url" title="title">Foo bar</a></p>
+.
+
+标题可多行：
+
+.
+[foo]: /url '
+title
+line1
+line2
+'
+
+[foo]
+.
+<p><a href="/url" title="
+title
+line1
+line2
+">foo</a></p>
+.
+
+但是不能包含[空行]：
+
+.
+[foo]: /url 'title
+
+with blank line'
+
+[foo]
+.
+<p>[foo]: /url 'title</p>
+<p>with blank line'</p>
+<p>[foo]</p>
+.
+
+标题可省略：
+
+.
+[foo]:
+/url
+
+[foo]
+.
+<p><a href="/url">foo</a></p>
+.
+
+链接目标不可省略：
+
+.
+[foo]:
+
+[foo]
+.
+<p>[foo]:</p>
+<p>[foo]</p>
+.
+
+链接可出现在其定义之前：
+
+.
+[foo]
+
+[foo]: url
+.
+<p><a href="url">foo</a></p>
+.
+
+如果匹配到多个定义，使用第一个：
+
+.
+[foo]
+
+[foo]: first
+[foo]: second
+.
+<p><a href="first">foo</a></p>
+.
+
+标签匹配不区分大小写，见[匹配]。
+
+.
+[FOO]: /url
+
+[Foo]
+.
+<p><a href="/url">Foo</a></p>
+.
+
+.
+[ΑΓΩ]: /φου
+
+[αγω]
+.
+<p><a href="/%CF%86%CE%BF%CF%85">αγω</a></p>
+.
+
+下面链接引用定义没有相应的链接，对文档无作用：
+
+.
+[foo]: /url
+.
+.
+
+再如:
+
+.
+[
+foo
+]: /url
+bar
+.
+<p>bar</p>
+.
+
+下面不是链接引用定义，因为标题后面有[非空白字符]：
+
+.
+[foo]: /url "title" ok
+.
+<p>[foo]: /url &quot;title&quot; ok</p>
+.
+
+下面不是链接引用定义，因为它缩进了四个空格：
+
+.
+    [foo]: /url "title"
+
+[foo]
+.
+<pre><code>[foo]: /url &quot;title&quot;
+</code></pre>
+<p>[foo]</p>
+.
+
+下面不是链接引用定义，因为它出现在代码块内：
+
+.
+```
+[foo]: /url
+```
+
+[foo]
+.
+<pre><code>[foo]: /url
+</code></pre>
+<p>[foo]</p>
+.
+
+链接引用定义不能中断段落：
+
+.
+Foo
+[bar]: /baz
+
+[bar]
+.
+<p>Foo
+[bar]: /baz</p>
+<p>[bar]</p>
+.
+
+但是它能直接跟在其它块后面，比如标题与水平线，且后面不需要空行。
+
+.
+# [Foo]
+[foo]: /url
+> bar
+.
+<h1><a href="/url">Foo</a></h1>
+<blockquote>
+<p>bar</p>
+</blockquote>
+.
+
+几个链接引用定义可放在一起，不需要用空行隔开。
+
+.
+[foo]: /foo-url "foo"
+[bar]: /bar-url
+  "bar"
+[baz]: /baz-url
+
+[foo],
+[bar],
+[baz]
+.
+<p><a href="/foo-url" title="foo">foo</a>,
+<a href="/bar-url" title="bar">bar</a>,
+<a href="/baz-url">baz</a></p>
+.
+
+[链接引用定义]可出现在块容器内，比如列表与块引用，在整个文档内有作用，
+而不是只限于所在的块容器。
+
+.
+[foo]
+
+> [foo]: /url
+.
+<p><a href="/url">foo</a></p>
+<blockquote>
+</blockquote>
+.
+
+
+## 段落
+
+连续的非空行，不能解析为其它块时便是[段落](@paragraph)。合并行并删除首尾
+[空白]得到段落的原生内容，再解析为内联元素，结果便是段落的内容。
+
+两个段落：
+
+.
+aaa
+
+bbb
+.
+<p>aaa</p>
+<p>bbb</p>
+.
+
+段落可以包含多行，但是不能有空行：
+
+.
+aaa
+bbb
+
+ccc
+ddd
+.
+<p>aaa
+bbb</p>
+<p>ccc
+ddd</p>
+.
+
+段落之间的多个空行没有效果：
+
+.
+aaa
+
+
+bbb
+.
+<p>aaa</p>
+<p>bbb</p>
+.
+
+行首的空格删除：
+
+.
+  aaa
+ bbb
+.
+<p>aaa
+bbb</p>
+.
+
+第一行之后的行可以缩进任意宽度，因为缩进式代码块不能中断段落：
+
+.
+aaa
+             bbb
+                                       ccc
+.
+<p>aaa
+bbb
+ccc</p>
+.
+
+不过第一行最多可缩进三个空格，不然将生成缩进式代码块：
+
+.
+   aaayan
+bbb
+.
+<p>aaayan
+bbb</p>
+.
+
+.
+    aaa
+bbb
+.
+<pre><code>aaa
+</code></pre>
+<p>bbb</p>
+.
+
+最后的空格在解析前删掉，故以两或多个空格结尾的段落不会以
+[硬换行符]结束。
+
+.
+aaa
+bbb
+.
+<p>aaa<br />
+bbb</p>
+.
+
+## 空行
+
+块之间的[空行]被忽略，除非需要用它们来判断[列表]是[紧]还是[松]。
+
+在文档开始及末尾的空行同样被忽略。
+
+.
+
+
+aaa
+
+
+# aaa
+
+
+.
+<p>aaa</p>
+<h1>aaa</h1>
+.
+
+
+# 容器块
+
+[容器块]是可以包含其它块的块。有两种基本类型：[块引用]及[列表项]。
+[列表]是列表项的元容器。
+
+我们递归地定义容器块的语法。定义的一般形式是：
+
+> 若 X 是一系列块，则 X 如此这般地转换后的结果是容器 Y 的内容。
+
+因此，我们通过解释块引用或列表项如何从它们的内容生成，解释了什么是它们。
+这用于定义语法足够，尽管没有给出解析这些结构的方法，方法见
+[附录 A: 解析策略]。
+
+## 块引用
+
+[块引用标记](@block-quote-marker)由 0-3 个空格缩进，`>`，可选的空白组成。
+
+下面规则定义[块引用](@block-quotes):
+
+1.  **基本**  如果一系列行 *Ls* 组成一系列块 *Bs*, 那么 *Ls* 每行前加上
+    [块引用标记]后的结果是一个包含 *Bs* 的块引用。
+
+2.  **懒惰**  如果一系列行 *Ls* 组成一个包含 *Bs* 的块引用，对于这些行，
+    块引用标记之后的[非空白字符]是段落连续文本，删除块引用标记之后的结果是
+    一个包含 *Bs* 的块引用。[段落连续文本](@paragraph-continuation-text)是
+    段落的一部分内容，但是不出现在段落的开始。
+
+3.  **连续**  文档不能包含两个连续的[块引用]，除非用空行隔开。
+
+其它的不是块引用。
+
+示例：
+
+.
+> # Foo
+> bar
+> baz
+.
+<blockquote>
+<h1>Foo</h1>
+<p>bar
+baz</p>
+</blockquote>
+.
+
+字符 `>` 后面的空格可省略：
+
+.
+># Foo
+>bar
+> baz
+.
+<blockquote>
+<h1>Foo</h1>
+<p>bar
+baz</p>
+</blockquote>
+.
+
+字符 `>` 可缩进 1-3 个空格：
+
+.
+   > # Foo
+   > bar
+ > baz
+.
+<blockquote>
+<h1>Foo</h1>
+<p>bar
+baz</p>
+</blockquote>
+.
+
+缩进 4 个空格就是代码块了：
+
+.
+    > # Foo
+    > bar
+    > baz
+.
+<pre><code>&gt; # Foo
+&gt; bar
+&gt; baz
+</code></pre>
+.
+
+懒惰模式下可省略段落连续行前的字符 `>`：
+
+.
+> # Foo
+> bar
+baz
+.
+<blockquote>
+<h1>Foo</h1>
+<p>bar
+baz</p>
+</blockquote>
+.
+
+块引用可以同时包含懒惰、非懒惰行：
+
+.
+> bar
+baz
+> foo
+.
+<blockquote>
+<p>bar
+baz
+foo</p>
+</blockquote>
+.
+
+懒惰模式只能用于段落的连续行，不能用于判定块结构的行。
+
+.
+> foo
+---
+.
+<blockquote>
+<p>foo</p>
+</blockquote>
+<hr />
+.
+
+.
+> - foo
+- bar
+.
+<blockquote>
+<ul>
+<li>foo</li>
+</ul>
+</blockquote>
+<ul>
+<li>bar</li>
+</ul>
+.
+
+.
+>     foo
+    bar
+.
+<blockquote>
+<pre><code>foo
+</code></pre>
+</blockquote>
+<pre><code>bar
+</code></pre>
+.
+
+.
+> ```
+foo
+```
+.
+<blockquote>
+<pre><code></code></pre>
+</blockquote>
+<p>foo</p>
+<pre><code></code></pre>
+.
+
+块引用可以为空：
+
+.
+>
+.
+<blockquote>
+</blockquote>
+.
+
+.
+>
+>
+>
+.
+<blockquote>
+</blockquote>
+.
+
+块引用的开始或结束可以是空行：
+
+.
+>
+> foo
+>
+.
+<blockquote>
+<p>foo</p>
+</blockquote>
+.
+
+空行始终会中断块引用：
+
+.
+> foo
+
+> bar
+.
+<blockquote>
+<p>foo</p>
+</blockquote>
+<blockquote>
+<p>bar</p>
+</blockquote>
+.
+
+目前多数 Markdown 实现，包括 John Gruber 的 `Markdown.pl`，将上例解析为
+一个包含两个段落的块引用。但是让作者决定是两个还是一个块引用似乎更好。
+
+连续意味着，若将这些块引用放一起，将得到一个块引用：
+
+.
+> foo
+> bar
+.
+<blockquote>
+<p>foo
+bar</p>
+</blockquote>
+.
+
+想得到一个包含两个段落的块引用，这样做：
+
+.
+> foo
+>
+> bar
+.
+<blockquote>
+<p>foo</p>
+<p>bar</p>
+</blockquote>
+.
+
+块引用可以中断段落：
+
+.
+foo
+> bar
+.
+<p>foo</p>
+<blockquote>
+<p>bar</p>
+</blockquote>
+.
+
+通常块引用前后不需要空行：
+
+.
+> aaa
+***
+> bbb
+.
+<blockquote>
+<p>aaa</p>
+</blockquote>
+<hr />
+<blockquote>
+<p>bbb</p>
+</blockquote>
+.
+
+不过因为懒惰模式，块引用与其后段落之间需要空行：
+
+.
+> bar
+baz
+.
+<blockquote>
+<p>bar
+baz</p>
+</blockquote>
+.
+
+.
+> bar
+
+baz
+.
+<blockquote>
+<p>bar</p>
+</blockquote>
+<p>baz</p>
+.
+
+.
+> bar
+>
+baz
+.
+<blockquote>
+<p>bar</p>
+</blockquote>
+<p>baz</p>
+.
+
+懒惰模式的一个效果是嵌套块引用的连续行可以省略字符 `>` ：
+
+.
+> > > foo
+bar
+.
+<blockquote>
+<blockquote>
+<blockquote>
+<p>foo
+bar</p>
+</blockquote>
+</blockquote>
+</blockquote>
+.
+
+.
+>>> foo
+> bar
+>>baz
+.
+<blockquote>
+<blockquote>
+<blockquote>
+<p>foo
+bar
+baz</p>
+</blockquote>
+</blockquote>
+</blockquote>
+.
+
+当在块引用中包含缩进式代码块时，记住[块引用标记]同时包含
+`>` 与空格，故 `>` 之后需要 5 个空格：
+
+.
+>     code
+
+>    not code
+.
+<blockquote>
+<pre><code>code
+</code></pre>
+</blockquote>
+<blockquote>
+<p>not code</p>
+</blockquote>
+.
+
+
+## 列表项
+
+[列表标记](@list-marker)是一个[无序列表标记]或[有序列表标记]。
+
+[无序列表标记](@bullet-list-marker)是一个 `-`, `+` 或 `*` 字符。
+
+[有序列表标记](@ordered-list-marker)由数字加上一个 `.` 或 `)` 字符组成。
+
+下面规则定义[列表项]:
+
+1.  **基本**
+    一组行 *Ls* 构成一组块 *Bs*，以[非空白字符]开始，且之间没有多于一个的
+    空行，*M* 是列表标记，*M* 的宽度为 *W*，*M* 后面一个空格，然后将 *M*
+    及空格加到 *Ls* 第一行的头部，*Ls* 后面的行缩进 *W + N* 个空格，
+    这样将得到一个列表项，以 *Bs* 为它的内容。
+    列表项的类型（有序或无序）由列表标记的类型决定。如果列表项是有序的，
+    则由有序列表标记给它一个序号。
+
+例如，让 *Ls* 为下面这几行
+
+.
+A paragraph
+with two lines.
+
+    indented code
+
+> A block quote.
+.
+<p>A paragraph
+with two lines.</p>
+<pre><code>indented code
+</code></pre>
+<blockquote>
+<p>A block quote.</p>
+</blockquote>
+.
+
+让 *M* 为标记 `1.`，*N* = 2，那么根据规则 #1 ，下面是一个有序列表项，
+起始数为 1， 它的内容同 *Ls*：
+
+.
+1.  A paragraph
+    with two lines.
+
+        indented code
+
+    > A block quote.
+.
+<ol>
+<li>
+<p>A paragraph
+with two lines.</p>
+<pre><code>indented code
+</code></pre>
+<blockquote>
+<p>A block quote.</p>
+</blockquote>
+</li>
+</ol>
+.
+
+最重要的是注意，列表标记后面的文本的位置决定列表项内后面的块需要缩进多少。
+若列表标记占 2 个空格，与[非空白字符]文本之间有 3 个空格，则块需要缩进
+ 5 个空格才能放到列表项内。
+
+下面例子演示内容需要缩进多少才能放到列表项内：
+
+.
+- one
+
+ two
+.
+<ul>
+<li>one</li>
+</ul>
+<p>two</p>
+.
+
+.
+- one
+
+  two
+.
+<ul>
+<li>
+<p>one</p>
+<p>two</p>
+</li>
+</ul>
+.
+
+.
+ -    one
+
+     two
+.
+<ul>
+<li>one</li>
+</ul>
+<pre><code> two
+</code></pre>
+.
+
+.
+ -    one
+
+      two
+.
+<ul>
+<li>
+<p>one</p>
+<p>two</p>
+</li>
+</ul>
+.
+
+这容易让人想到“列”：后续块必须缩进到列表标记后的第一个[非空白字符]所在列。
+不过这不一定对。列表标记后的空格决定需要相对缩进多少。缩进到哪列决定于
+列表项如何插入到其它结构中，如下例：
+
+.
+   > > 1.  one
+>>
+>>     two
+.
+<blockquote>
+<blockquote>
+<ol>
+<li>
+<p>one</p>
+<p>two</p>
+</li>
+</ol>
+</blockquote>
+</blockquote>
+.
+
+这里 `two` 与列表标记 `1.` 同列，但是它包含在列表项中，因为在最后的
+块引用标记后面足够缩进了。
+
+反过来也可能。在下例中，`two` 在 `one` 右边较远处，但是它不是列表项的
+一部分，因为它没有足够缩进，以超过块引用标记：
+
+.
+>>- one
+>>
+  >  > two
+.
+<blockquote>
+<blockquote>
+<ul>
+<li>one</li>
+</ul>
+<p>two</p>
+</blockquote>
+</blockquote>
+.
+
+注意列表标记与后面内容之间至少要有一个空格，下面不是列表项：
+
+.
+-one
+
+2.two
+.
+<p>-one</p>
+<p>2.two</p>
+.
+
+列表项内的块不可用一个以上的空行隔开。两个空行结束一个列表，除非空行
+包含在[围栏式代码块]中。
+
+.
+- foo
+
+  bar
+
+- foo
+
+
+  bar
+
+- ```
+  foo
+
+
+  bar
+  ```
+
+- baz
+
+  + ```
+    foo
+
+
+    bar
+    ```
+.
+<ul>
+<li>
+<p>foo</p>
+<p>bar</p>
+</li>
+<li>
+<p>foo</p>
+</li>
+</ul>
+<p>bar</p>
+<ul>
+<li>
+<pre><code>foo
+
+
+bar
+</code></pre>
+</li>
+<li>
+<p>baz</p>
+<ul>
+<li>
+<pre><code>foo
+
+
+bar
+</code></pre>
+</li>
+</ul>
+</li>
+</ul>
+.
+
+列表项可以包含任意类型的块：
+
+.
+1.  foo
+
+    ```
+    bar
+    ```
+
+    baz
+
+    > bam
+.
+<ol>
+<li>
+<p>foo</p>
+<pre><code>bar
+</code></pre>
+<p>baz</p>
+<blockquote>
+<p>bam</p>
+</blockquote>
+</li>
+</ol>
+.
+
+2.  **以缩进式代码块开始的列表项**
+    一组行 *Ls* 构成一组块 *Bs*，以[非空白字符]开始，且之间没有多于一个的
+    空行，*M* 是列表标记，*M* 的宽度为 *W*，*M* 后面有一个空格，然后将 *M*
+    及空格加到 *Ls* 第一行的头部，*Ls* 后面的行缩进 *W + 1* 个空格，
+    这样将得到一个列表项，以 *Bs* 为它的内容。
+    列表项的类型（有序或无序）由列表标记的类型决定。如果列表项是有序的，
+    则由有序列表标记给它一个序号。
+
+缩进式代码块必须在列表项的开始位置再缩进 4 个空格。下面是缩进 6 个空格：
+
+.
+- foo
+
+      bar
+.
+<ul>
+<li>
+<p>foo</p>
+<pre><code>bar
+</code></pre>
+</li>
+</ul>
+.
+
+下面是缩进 11 个空格：
+
+.
+  10.  foo
+
+           bar
+.
+<ol start="10">
+<li>
+<p>foo</p>
+<pre><code>bar
+</code></pre>
+</li>
+</ol>
+.
+
+若列表项的第一个块是缩进式代码块，根据规则 #2，需要在列表标记后缩进
+一个空格：
+
+.
+    indented code
+
+paragraph
+
+    more code
+.
+<pre><code>indented code
+</code></pre>
+<p>paragraph</p>
+<pre><code>more code
+</code></pre>
+.
+
+.
+1.     indented code
+
+   paragraph
+
+       more code
+.
+<ol>
+<li>
+<pre><code>indented code
+</code></pre>
+<p>paragraph</p>
+<pre><code>more code
+</code></pre>
+</li>
+</ol>
+.
+
+注意多余的空格缩进将放在代码块内:
+
+.
+1.      indented code
+
+   paragraph
+
+       more code
+.
+<ol>
+<li>
+<pre><code> indented code
+</code></pre>
+<p>paragraph</p>
+<pre><code>more code
+</code></pre>
+</li>
+</ol>
+.
+
+注意规则 #1 与 #2 只适用于两种情况：一，以[非空白字符]开始；二，以缩进式
+代码块开始。在下面情况中，第一个块缩进 3 个空格，不能生成一个列表项：
+
+.
+   foo
+
+bar
+.
+<p>foo</p>
+<p>bar</p>
+.
+
+.
+-    foo
+
+  bar
+.
+<ul>
+<li>foo</li>
+</ul>
+<p>bar</p>
+.
+
+这不是重要的限制，因为当块缩进 1-3 个空格时，在解析时可以删除而不引起改变，
+从而适用于规则 #1。因此对于上面情况：
+
+.
+-  foo
+
+   bar
+.
+<ul>
+<li>
+<p>foo</p>
+<p>bar</p>
+</li>
+</ul>
+.
+
+3.  **以空行开始的列表项**
+    一组行且它们的第一行是空行 *Ls* 构成一组块 *Bs*，块可能为空，之间没有
+    多于一个的空行，*M* 是列表标记，*M* 的宽度为 *W*，然后将 *M*
+    加到 *Ls* 第一行的头部，*Ls* 后面的行缩进 *W + 1* 个空格，
+    这样将得到一个列表项，以 *Bs* 为它的内容。
+    空行不需要缩进。
+    列表项的类型（有序或无序）由列表标记的类型决定。如果列表项是有序的，
+    则由有序列表标记给它一个序号。
+
+下面列表项以空行开始，但是不为空：
+
+.
+-
+  foo
+-
+  ```
+  bar
+  ```
+-
+      baz
+.
+<ul>
+<li>foo</li>
+<li>
+<pre><code>bar
+</code></pre>
+</li>
+<li>
+<pre><code>baz
+</code></pre>
+</li>
+</ul>
+.
+
+一个空的无序列表项：
+
+.
+- foo
+-
+- bar
+.
+<ul>
+<li>foo</li>
+<li></li>
+<li>bar</li>
+</ul>
+.
+
+[列表标记]后是否有空格不重要：
+
+.
+- foo
+-
+- bar
+.
+<ul>
+<li>foo</li>
+<li></li>
+<li>bar</li>
+</ul>
+.
+
+一个空的有序列表项：
+
+.
+1. foo
+2.
+3. bar
+.
+<ol>
+<li>foo</li>
+<li></li>
+<li>bar</li>
+</ol>
+.
+
+列表可以空列表项开始或结束：
+
+.
+*
+.
+<ul>
+<li></li>
+</ul>
+.
+
+
+4.  **缩进**
+    根据规则 #1, #2 或 #3，一组行 *Ls* 构成一个列表项，如果将 *Ls* 每行缩进
+    1-3 个空格，每行缩进宽度一致，得到的列表项一样。
+    空行不需要缩进。
+
+
+缩进一个空格：
+
+.
+ 1.  A paragraph
+     with two lines.
+
+         indented code
+
+     > A block quote.
+.
+<ol>
+<li>
+<p>A paragraph
+with two lines.</p>
+<pre><code>indented code
+</code></pre>
+<blockquote>
+<p>A block quote.</p>
+</blockquote>
+</li>
+</ol>
+.
+
+缩进两个空格：
+
+.
+  1.  A paragraph
+      with two lines.
+
+          indented code
+
+      > A block quote.
+.
+<ol>
+<li>
+<p>A paragraph
+with two lines.</p>
+<pre><code>indented code
+</code></pre>
+<blockquote>
+<p>A block quote.</p>
+</blockquote>
+</li>
+</ol>
+.
+
+缩进三个空格：
+
+.
+   1.  A paragraph
+       with two lines.
+
+           indented code
+
+       > A block quote.
+.
+<ol>
+<li>
+<p>A paragraph
+with two lines.</p>
+<pre><code>indented code
+</code></pre>
+<blockquote>
+<p>A block quote.</p>
+</blockquote>
+</li>
+</ol>
+.
+
+缩进四个空格便是代码块了：
+
+.
+    1.  A paragraph
+        with two lines.
+
+            indented code
+
+        > A block quote.
+.
+<pre><code>1.  A paragraph
+    with two lines.
+
+        indented code
+
+    &gt; A block quote.
+</code></pre>
+.
+
+
+5.  **懒惰**
+    一组行 *Ls* 构成一个列表项，如果从这样的行——它的缩进后面的[非空白字符]是
+    [段落连续文本]，删除一些或全部的缩进，得到的列表项一样。
+    没有缩进的行称作[懒惰连续行](@lazy-continuation-line)。
+
+懒惰连续行示例：
+
+.
+  1.  A paragraph
+with two lines.
+
+          indented code
+
+      > A block quote.
+.
+<ol>
+<li>
+<p>A paragraph
+with two lines.</p>
+<pre><code>indented code
+</code></pre>
+<blockquote>
+<p>A block quote.</p>
+</blockquote>
+</li>
+</ol>
+.
+
+缩进可部分删除：
+
+.
+  1.  A paragraph
+    with two lines.
+.
+<ol>
+<li>A paragraph
+with two lines.</li>
+</ol>
+.
+
+下例演示在嵌套结构中懒惰模式怎么做：
+
+.
+> 1. > Blockquote
+continued here.
+.
+<blockquote>
+<ol>
+<li>
+<blockquote>
+<p>Blockquote
+continued here.</p>
+</blockquote>
+</li>
+</ol>
+</blockquote>
+.
+
+.
+> 1. > Blockquote
+> continued here.
+.
+<blockquote>
+<ol>
+<li>
+<blockquote>
+<p>Blockquote
+continued here.</p>
+</blockquote>
+</li>
+</ol>
+</blockquote>
+.
+
+
+6.  **就是这样**
+    按规则 #1--5 不能视为列表项的不是列表项。
+
+子列表遵循上面的规则。跟列表项内段落一样，子列表需要缩进相同的宽度。
+
+下例需要缩进两个空格：
+
+.
+- foo
+  - bar
+    - baz
+.
+<ul>
+<li>foo
+<ul>
+<li>bar
+<ul>
+<li>baz</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+.
+
+一个不够：
+
+.
+- foo
+ - bar
+  - baz
+.
+<ul>
+<li>foo</li>
+<li>bar</li>
+<li>baz</li>
+</ul>
+.
+
+下例需要缩进四个空格，因为列表标记较宽：
+
+.
+10) foo
+    - bar
+.
+<ol start="10">
+<li>foo
+<ul>
+<li>bar</li>
+</ul>
+</li>
+</ol>
+.
+
+三个不够：
+
+.
+10) foo
+   - bar
+.
+<ol start="10">
+<li>foo</li>
+</ol>
+<ul>
+<li>bar</li>
+</ul>
+.
+
+列表可以是列表项的第一个块：
+
+.
+- - foo
+.
+<ul>
+<li>
+<ul>
+<li>foo</li>
+</ul>
+</li>
+</ul>
+.
+
+.
+1. - 2. foo
+.
+<ol>
+<li>
+<ul>
+<li>
+<ol start="2">
+<li>foo</li>
+</ol>
+</li>
+</ul>
+</li>
+</ol>
+.
+
+列表项可以包含标题：
+
+.
+- # Foo
+- Bar
+  ---
+  baz
+.
+<ul>
+<li>
+<h1>Foo</h1>
+</li>
+<li>
+<h2>Bar</h2>
+baz</li>
+</ul>
+.
+
+### 讨论
+
+对于列表项，John Gruber 的 Markdown 语法这么说：
+
+1. 列表标记从左边距开始，不过最多可缩进三个空格。列表标记后必须有一或
+   多个空格或制表符。
+
+2. 为了看着舒心，可以悬挂缩进列表项…… 不过不想做的话可不做。
+
+3. 列表项可包含多个段落。后续段落必须缩进四个空格或一个制表符。
+
+4. 缩进后续段落会看着舒心，不过再说一遍，可以偷懒不做。
+
+5. 将块引用放到列表项内时，列表项标记 `>` 需要缩进。
+
+6. 将代码块放到列表项内时，代码块需要缩进两次—— 八个空格或两个制表符。
+
+这些规则规定了列表项内的段落必须缩进四个空格。大概是从左边距而不是列表标记
+开始，没有明确说明。并且列表项内的代码块必须缩进八个空格而不是常见的四个。
+另外块引用也必须缩进，却没有说缩进多少，不过给出的例子是缩进四个空格。尽管
+没提到其它类型块，不过可合理的推测列表项内的块，包括列表，必须缩进四个空格。
+此之为**四空格规则**。
+
+四空格规则清晰且有原则，如果 `Markdown.pl` 遵守了，这将成为标准。但是
+`Markdown.pl` 允许段落及子列表只缩进两个空格，至少是在外部列表。更糟的是，
+它的处理不一致：外部列表的子列表需要缩进两个空格，而这个子列表的子列表
+需要缩进三个空格。接下来就不奇怪了，不同的 Markdown 实现就列表项的内容发展
+了迥异的规则。例如 Pandoc 和 python-Markdown 遵守 Gruber 的语法说明，
+而 discount, redcarpet, marked, PHP Markdown等其它实现比较接近 `Markdown.pl`。
+
+遗憾的是，考虑到各实现的分歧，无法为列表项给出一个规范，确保不会破坏已有
+文档。不过，本规范能正确处理四空格规则及更宽松的 `Markdown.pl` 规则，如果它们的排版阅读起来自然的话。
+
+这里的策略是让列表标记的宽度与缩进决定块如何缩进才能放到列表项内，而不是
+指定固定而武断的数。作者可将列表项的内容作为一个单元，向右足够缩进以适合
+列表标记及标记前的缩进。不过懒惰规则 #5 允许连续行不缩进。
+
+我们认为，比起其它要求缩进固定宽度的规则，本规则更胜一筹。四空格规则
+清晰但不自然。
+
+``` markdown
+- foo
+
+  bar
+
+  - baz
+```
+
+按四空格规则，上面将解析为夹着一个段落的两个列表，
+
+``` html
+<ul>
+<li>foo</li>
+</ul>
+<p>bar</p>
+<ul>
+<li>baz</li>
+</ul>
+```
+
+而不是一个列表，
+
+``` html
+<ul>
+<li>
+<p>foo</p>
+<p>bar</p>
+<ul>
+<li>baz</li>
+</ul>
+</li>
+</ul>
+```
+
+这有违直观。
+
+选择四个空格是武断的。人们可以学会，但是结果不大直观，将时不时地绊倒初学者。
+
+换成两个空格是否有用呢？问题是，这样的规则，加上允许列表标记缩进 1-3 个
+空格，可以使列表项内文本缩进小于列表标记。例如 `Markdown.pl` 将
+
+``` markdown
+   - one
+
+  two
+```
+
+解析为一个列表项，包含两个段落：
+
+``` html
+<ul>
+<li>
+<p>one</p>
+<p>two</p>
+</li>
+</ul>
+```
+
+类似的，
+
+``` markdown
+>   - one
+>
+>  two
+```
+
+结果为：
+
+``` html
+<blockquote>
+<ul>
+<li>
+<p>one</p>
+<p>two</p>
+</li>
+</ul>
+</blockquote>
+```
+
+很违直观。
+
+不从左边距，而从列表标记开始缩进固定宽度，比如说两个空格甚至一个
+空格，列表标记也可缩进。这个方案可避开上面的异常。按这个方案，
+下面将是一个包含一个段落的列表项，即使段落 `bar` 缩进不如第一个
+段落 `foo`：
+
+``` markdown
+ 10. foo
+
+   bar
+```
+
+这样的结果有利于支持这个方案。
+但是，在这个方案下缩进式代码需要在列表标记后面缩进 6 个空格。
+这将破坏大量已有的像下面这样的 Markdown：
+
+``` markdown
+1.  foo
+
+        indented code
+```
+
+代码块缩进 8 个空格。按本规范的解析结果符合预期，因为代码块的缩进从
+`foo` 的首字符算起。
+
+有个需要特别考虑的情况：列表项以缩进式代码块开始。既然没有第一个段落作为
+参考，那么需要缩进多少呢？规则 #2 简单地规定了这种情况，需要在列表标记后
+缩进一个空格，然后缩进式代码块如常地缩进四个空格。这是四空格规则的一种
+常见情况：列表标记加上它的缩进占四个空格，但是不同于其它情况。
+
+## 列表
+
+[列表](@list)由数个同类列表项组成。列表项可用单个[空行]隔开，但是两个空行
+会结束所有嵌套列表。
+
+[同类](@of-the-same-type)列表项的[列表标记]同类，即无序
+列表标记使用相同的字符，`-`, `+` 或 `*`；有序列表序号使用相同的定界符，`.`
+或 `)`。
+
+[有序列表](@ordered-list)的列表项以[有序列表标记]开始，
+[无序列表](@bullet-list)的列表项以[无序列表标记]开始。
+
+有序列表的[开始数字](@start-number)由第一个列表项的数字决定，而不考虑
+后面的列表项。
+
+列表的列表项以空行隔开，或者任意列表项包括两个块元素，并且以空行隔开，
+此列表为[松](@loose)，其它的则为[紧](@tight)。区别是输出 HTML 时
+松列表的内容由 `<p>` 标签包裹，而紧列表不会。
+
+改变列表标记则开始另一个列表：
+
+.
+- foo
+- bar
++ baz
+.
+<ul>
+<li>foo</li>
+<li>bar</li>
+</ul>
+<ul>
+<li>baz</li>
+</ul>
+.
+
+.
+1. foo
+2. bar
+3) baz
+.
+<ol>
+<li>foo</li>
+<li>bar</li>
+</ol>
+<ol start="3">
+<li>baz</li>
+</ol>
+.
+
+列表可中断段落，即段落后跟着列表时不需要用空行隔开：
+
+.
+Foo
+- bar
+- baz
+.
+<p>Foo</p>
+<ul>
+<li>bar</li>
+<li>baz</li>
+</ul>
+.
+
+`Markdown.pl` 则不能，这是担心在硬换行后的数字会触发一个列表：
+
+.
+The number of windows in my house is
+14.  The number of doors is 6.
+.
+<p>The number of windows in my house is</p>
+<ol start="14">
+<li>The number of doors is 6.</li>
+</ol>
+.
+
+奇怪的是，`Markdown.pl` 却允许块引用中断段落，即使会遇到同样的情况。
+我们认为两者的处理应当一致，允许中断段落，原因有二：
+
+一，人们习惯不用空行来开始列表：
+
+    I need to buy
+    - new shoes
+    - a coat
+    - a plane ticket
+
+二，我们倾向于
+
+> [一致原则](@principle-of-uniformity):
+> 若一段文本有特定意义，当放到容器块中，比如列表项或块引用，
+> 也应有同样的意义。
+
+实际上，[列表项]与[块引用]的规则预示了这个原则。
+
+      * I need to buy
+        - new shoes
+        - a coat
+        - a plane ticket
+
+如果上面是一个列表项，包含一个段落，其后跟着一个子列表。所有 Markdown 实现
+均如此，尽管段落可能没用 `<p>` 标签包裹，因为列表为“紧”。
+
+    I need to buy
+    - new shoes
+    - a coat
+    - a plane ticket
+
+那么上面是一个段落，其后跟着一个子列表。
+
+我们遵守[一致原则]，有两种方案：
+
+1.  所有的列表与块引用前都需要空行，包括嵌套列表中的子列表。
+
+2.  这些地方不需要空行
+
+[reStructuredText](http://docutils.sourceforge.net/rst.html) 采用第一种
+方案，这话要是说起来就多了。但是第二种方案似乎更贴近 Markdown 实践。
+
+列表项之间可以放空行，但是两个空行会结束列表：
+
+.
+- foo
+
+- bar
+
+
+- baz
+.
+<ul>
+<li>
+<p>foo</p>
+</li>
+<li>
+<p>bar</p>
+</li>
+</ul>
+<ul>
+<li>baz</li>
+</ul>
+.
+
+如[列表项]一节所示，列表项内块之间放两个空行也会结束列表：
+
+.
+- foo
+
+
+  bar
+- baz
+.
+<ul>
+<li>foo</li>
+</ul>
+<p>bar</p>
+<ul>
+<li>baz</li>
+</ul>
+.
+
+实际上两个空行会结束所有嵌套列表：
+
+.
+- foo
+  - bar
+    - baz
+
+
+      bim
+.
+<ul>
+<li>foo
+<ul>
+<li>bar
+<ul>
+<li>baz</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<pre><code>  bim
+</code></pre>
+.
+
+因此，两个空行可用于分隔两个连续的同类列表，或分隔列表与缩进式代码块，
+以防解析为最后一个列表项的段落：
+
+.
+- foo
+- bar
+
+
+- baz
+- bim
+.
+<ul>
+<li>foo</li>
+<li>bar</li>
+</ul>
+<ul>
+<li>baz</li>
+<li>bim</li>
+</ul>
+.
+
+.
+-   foo
+
+    notcode
+
+-   foo
+
+
+    code
+.
+<ul>
+<li>
+<p>foo</p>
+<p>notcode</p>
+</li>
+<li>
+<p>foo</p>
+</li>
+</ul>
+<pre><code>code
+</code></pre>
+.
+
+列表项不需要缩进一致。下面列表项同级，因为没有哪项足够缩进到可以放到前
+一个列表项内：
+
+.
+- a
+ - b
+  - c
+   - d
+  - e
+ - f
+- g
+.
+<ul>
+<li>a</li>
+<li>b</li>
+<li>c</li>
+<li>d</li>
+<li>e</li>
+<li>f</li>
+<li>g</li>
+</ul>
+.
+
+下面列表为松，因为两个列表项之间有一个空行：
+
+.
+- a
+- b
+
+- c
+.
+<ul>
+<li>
+<p>a</p>
+</li>
+<li>
+<p>b</p>
+</li>
+<li>
+<p>c</p>
+</li>
+</ul>
+.
+
+下面也是，第二项为空：
+
+.
+* a
+*
+
+* c
+.
+<ul>
+<li>
+<p>a</p>
+</li>
+<li></li>
+<li>
+<p>c</p>
+</li>
+</ul>
+.
+
+下面列表为松，尽管列表项之间没有空行，但是有个列表项直接包含两个块级元素，
+两者间有一个空行：
+
+.
+- a
+- b
+
+  c
+- d
+.
+<ul>
+<li>
+<p>a</p>
+</li>
+<li>
+<p>b</p>
+<p>c</p>
+</li>
+<li>
+<p>d</p>
+</li>
+</ul>
+.
+
+.
+- a
+- b
+
+  [ref]: /url
+- d
+.
+<ul>
+<li>
+<p>a</p>
+</li>
+<li>
+<p>b</p>
+</li>
+<li>
+<p>d</p>
+</li>
+</ul>
+.
+
+下面列表为紧，因为空行在代码块中：
+
+.
+- a
+- ```
+  b
+
+
+  ```
+- c
+.
+<ul>
+<li>a</li>
+<li>
+<pre><code>b
+
+
+</code></pre>
+</li>
+<li>c</li>
+</ul>
+.
+
+下面列表为紧，因为空行是在子列表中。里面列表松，外面列表紧：
+：
+
+.
+- a
+  - b
+
+    c
+- d
+.
+<ul>
+<li>a
+<ul>
+<li>
+<p>b</p>
+<p>c</p>
+</li>
+</ul>
+</li>
+<li>d</li>
+</ul>
+.
+
+下面列表为紧，因为空行是在块引用中：
+
+.
+* a
+  > b
+  >
+* c
+.
+<ul>
+<li>a
+<blockquote>
+<p>b</p>
+</blockquote>
+</li>
+<li>c</li>
+</ul>
+.
+
+下面列表为紧，因为相邻两个块元素之间没用空行隔开：
+
+.
+- a
+  > b
+  ```
+  c
+  ```
+- d
+.
+<ul>
+<li>a
+<blockquote>
+<p>b</p>
+</blockquote>
+<pre><code>c
+</code></pre>
+</li>
+<li>d</li>
+</ul>
+.
+
+单项列表为紧：
+
+.
+- a
+.
+<ul>
+<li>a</li>
+</ul>
+.
+
+.
+- a
+  - b
+.
+<ul>
+<li>a
+<ul>
+<li>b</li>
+</ul>
+</li>
+</ul>
+.
+
+下面列表为松，因为列表项内两个块元素间有空行：
+
+.
+1. ```
+   foo
+   ```
+
+   bar
+.
+<ol>
+<li>
+<pre><code>foo
+</code></pre>
+<p>bar</p>
+</li>
+</ol>
+.
+
+外面列表松，里面列表紧：
+
+.
+* foo
+  * bar
+
+  baz
+.
+<ul>
+<li>
+<p>foo</p>
+<ul>
+<li>bar</li>
+</ul>
+<p>baz</p>
+</li>
+</ul>
+.
+
+.
+- a
+  - b
+  - c
+
+- d
+  - e
+  - f
+.
+<ul>
+<li>
+<p>a</p>
+<ul>
+<li>b</li>
+<li>c</li>
+</ul>
+</li>
+<li>
+<p>d</p>
+<ul>
+<li>e</li>
+<li>f</li>
+</ul>
+</li>
+</ul>
+.
+
+# 内联元素
+
+内联元素从字符流的开始到结尾连续解析（对于从左至右书写的语言是从左至右）。
+例如：
+
+.
+`hi`lo`
+.
+<p><code>hi</code>lo`</p>
+.
+
+`hi` 解析为代码，最后的反引号是字面反引号。
+
+## 用反斜杠转义
+
+任意 ASCII 标点符号都可以用反斜杠转义：
+
+.
+\!\"\#\$\%\&\'\(\)\*\+\,\-\.\/\:\;\<\=\>\?\@\[\\\]\^\_\`\{\|\}\~
+.
+<p>!&quot;#$%&amp;'()*+,-./:;&lt;=&gt;?@[\]^_`{|}~</p>
+.
+
+其它字符前的反斜杠视为字面反斜杠：
+
+.
+\→\A\a\ \3\φ\«
+.
+<p>\   \A\a\ \3\φ\«</p>
+.
+
+转义后的字符如同普通字符，不再有语法意义：
+
+.
+\*not emphasized*
+\<br/> not a tag
+\[not a link](/foo)
+\`not code`
+1\. not a list
+\* not a list
+\# not a header
+\[foo]: /url "not a reference"
+.
+<p>*not emphasized*
+&lt;br/&gt; not a tag
+[not a link](/foo)
+`not code`
+1. not a list
+* not a list
+# not a header
+[foo]: /url &quot;not a reference&quot;</p>
+.
+
+如果反斜杠自己被转义，它后面的字符便不会被转义：
+
+.
+\\*emphasis*
+.
+<p>\<em>emphasis</em></p>
+.
+
+在行尾的反斜杠是 [硬换行符]：
+
+.
+foo\
+bar
+.
+<p>foo<br />
+bar</p>
+.
+
+在代码块、内联代码、自动链接及原生 HTML 中不能转义：
+
+.
+`` \[\` ``
+.
+<p><code>\[\`</code></p>
+.
+
+.
+    \[\]
+.
+<pre><code>\[\]
+</code></pre>
+.
+
+.
+~~~
+\[\]
+~~~
+.
+<pre><code>\[\]
+</code></pre>
+.
+
+.
+<http://example.com?find=\*>
+.
+<p><a href="http://example.com?find=%5C*">http://example.com?find=\*</a></p>
+.
+
+.
+<a href="/bar\/)">
+.
+<p><a href="/bar\/)"></p>
+.
+
+但是可以用在其它情况下，比如链接地址、链接标题、链接引用及
+[围栏式代码块]的[信息字符串]。
+
+.
+[foo](/bar\* "ti\*tle")
+.
+<p><a href="/bar*" title="ti*tle">foo</a></p>
+.
+
+.
+[foo]
+
+[foo]: /bar\* "ti\*tle"
+.
+<p><a href="/bar*" title="ti*tle">foo</a></p>
+.
+
+.
+``` foo\+bar
+foo
+```
+.
+<pre><code class="language-foo+bar">foo
+</code></pre>
+.
+
+
+## 实体
+
+为了尽可能与 HTML 一样标准，所有的有效的 HTML 实体，在代码块与内联代码内
+的除外，原样识别，并在保存到 AST 之前转换为 Unicode 字符。
+这意味着渲染器在处理非 HTML 时不需要知道 HTML 实体。
+HTML 渲染器或者将 Unicode 字符转为实体，或者保持不变。
+不过 `"`, `&`, `<` 与 `>` 必须渲染为实体。
+
+[命名实体](@name-entities)由 `&` 、任意 HTML5 有效的实体名字、`;` 组成。
+实体的名字与相应的代码点
+参考[这个文档](https://html.spec.whatwg.org/multipage/entities.json)
+
+.
+&nbsp; &amp; &copy; &AElig; &Dcaron; &frac34; &HilbertSpace; &DifferentialD; &ClockwiseContourIntegral;
+.
+<p>  &amp; © Æ Ď ¾ ℋ ⅆ ∲</p>
+.
+
+[十进制实体](@decimal-entities)由 `&#` 、一串 1-8 个阿拉伯数字、`;` 组成。
+这些实体识别后转为相应的 UTF8 代码点。无效的 Unicode 代码点将写作
+“未知代码点"字符(`0xFFFD`)。
+
+.
+&#35; &#1234; &#992; &#98765432;
+.
+<p># Ӓ Ϡ �</p>
+.
+
+[十六进制实体](@hexadecimal-entities)由 `&#` 、`X` 或 `x`、一串 1-8 个
+十六进制数字、`;` 组成。它们也是识别后转为相应的 UTF8 代码点。
+
+.
+&#X22; &#XD06; &#xcab;
+.
+<p>&quot; ആ ಫ</p>
+.
+
+下面这些不是实体：
+
+.
+&nbsp &x; &#; &#x; &ThisIsWayTooLongToBeAnEntityIsntIt; &hi?;
+.
+<p>&amp;nbsp &amp;x; &amp;#; &amp;#x; &amp;ThisIsWayTooLongToBeAnEntityIsntIt; &amp;hi?;</p>
+.
+
+尽管 HTML5 接受一些实体末尾没有分号，比如 `&copy`。这里不会识别为实体，
+因为这让语法出现歧义：
+
+.
+&copy
+.
+<p>&amp;copy</p>
+.
+
+不在 HTML5 命名实体列表上的字符串也不会识别为实体：
+
+.
+&MadeUpEntity;
+.
+<p>&amp;MadeUpEntity;</p>
+.
+
+除内联代码与代码块之外，在其它地方会识别实体，比如原生 HTML、URL、
+[链接标题]及[围栏式代码块]的[信息字符串]：
+
+.
+<a href="&ouml;&ouml;.html">
+.
+<p><a href="&ouml;&ouml;.html"></p>
+.
+
+.
+[foo](/f&ouml;&ouml; "f&ouml;&ouml;")
+.
+<p><a href="/f%C3%B6%C3%B6" title="föö">foo</a></p>
+.
+
+.
+[foo]
+
+[foo]: /f&ouml;&ouml; "f&ouml;&ouml;"
+.
+<p><a href="/f%C3%B6%C3%B6" title="föö">foo</a></p>
+.
+
+.
+``` f&ouml;&ouml;
+foo
+```
+.
+<pre><code class="language-föö">foo
+</code></pre>
+.
+
+在内联代码与代码块内的实体按字面文本处理：
+
+.
+`f&ouml;&ouml;`
+.
+<p><code>f&amp;ouml;&amp;ouml;</code></p>
+.
+
+.
+    f&ouml;f&ouml;
+.
+<pre><code>f&amp;ouml;f&amp;ouml;
+</code></pre>
+.
+
+## 内联代码
+
+[反引号串](@backtick-string)是一串一或多个反引号(`` ` ``)，
+前后没有反引号。
+
+[内联代码](@code-span)以反引号串开始，以同样长度的反引号串结束。
+这两个反引号串之间的文本，删掉首尾空格及[行结束符]，[空白]合并为
+一个空格，结果便是内联代码的内容。
+
+下面是一个简单的内联代码：
+
+.
+`foo`
+.
+<p><code>foo</code></p>
+.
+
+下面用了两个反引号，因为代码包含一个反引号。这个例子也演示了首尾空格
+被删除：
+
+.
+`` foo ` bar  ``
+.
+<p><code>foo ` bar</code></p>
+.
+
+下例演示首尾空格被删除：
+
+.
+` `` `
+.
+<p><code>``</code></p>
+.
+
+[行结束符]如同空格一样处理：
+
+.
+``
+foo
+``
+.
+<p><code>foo</code></p>
+.
+
+跟浏览器一样，内部的空格及[行结束符]合并为单个空格：
+
+.
+`foo   bar
+  baz`
+.
+<p><code>foo bar baz</code></p>
+.
+
+问：为什么不保留空格，既然浏览器会合并它们?
+答：因为我们可能会转换到非 HTML 格式，不能依赖 HTML 渲染。
+
+对于内部的空格及[行结束符]，已有的实现的处理不同。一些，包括 `Markdown.pl`
+与`showdown`，将[行结束符]转为 `<br />` 标签。但是对于想硬换行段落的人
+来说就很困难，因为内联代码内的换行将导致在输出时出现一个不必要的换行。
+其它将内部空格保持不变，如果只转换到 HTML 这没问题。
+
+.
+`foo `` bar`
+.
+<p><code>foo `` bar</code></p>
+.
+
+注意在内联代码内不能用反斜杠转义，所有的反斜杠按字面处理：
+
+.
+`foo\`bar`
+.
+<p><code>foo\</code>bar`</p>
+.
+
+没必要用反斜杠转义，因为可以选择一串 n 个反引号作为定界符，只要代码
+不包含这 n 个反引号。
+
+内联代码的反引号比其它内联结构优先级高，除了 HTML 标签与自动链接。
+例如下面不会解析为强调，因为第二个 `*` 是内联代码的一部分：
+
+.
+*foo`*`
+.
+<p>*foo<code>*</code></p>
+.
+
+下面不会解析为链接：
+
+.
+[not a `link](/foo`)
+.
+<p>[not a <code>link](/foo</code>)</p>
+.
+
+内联代码、HTML 标签及自动链接有同样的优先级，因此下面是内联代码：
+
+.
+`<a href="`">`
+.
+<p><code>&lt;a href=&quot;</code>&quot;&gt;`</p>
+.
+
+但是下面是 HTML 标签：
+
+.
+<a href="`">`
+.
+<p><a href="`">`</p>
+.
+
+下面是内联代码：
+
+.
+`<http://foo.bar.`baz>`
+.
+<p><code>&lt;http://foo.bar.</code>baz&gt;`</p>
+.
+
+下面是自动链接：
+
+.
+<http://foo.bar.`baz>`
+.
+<p><a href="http://foo.bar.%60baz">http://foo.bar.`baz</a>`</p>
+.
+
+当反引号串没有以匹配的反引号串关闭，则只有字面上的反引号串：
+
+.
+```foo``
+.
+<p>```foo``</p>
+.
+
+.
+`foo
+.
+<p>`foo</p>
+.
+
+## 强调与着重强调
+
+John Gruber 的
+[Markdown 语法说明](http://daringfireball.net/projects/markdown/syntax#em)
+说到:
+
+> Markdown 将 (`*`) 与下划线 (`_`) 作为强调的指示符。被单个 `*` 或 `_`
+> 包裹的文本将被 HTML `<em>` 标签包裹。被两个包裹的将被 `<strong>` 标签
+> 包裹。
+
+对于大多数人这足够了，但是这些规则有许多未定情况，特别是嵌套强调。
+`Markdown.pl` 测试套件明确了，`***` 与 `___` 可用于着重强调，大多数实现
+也支持下面情况：
+
+``` markdown
+***strong emph***
+***strong** in emph*
+***emph* in strong**
+**in strong *emph***
+*in emph **strong***
+```
+
+支持下面情况的少些，不过明确且有用，特别是对参考文献条目：
+
+``` markdown
+*emph *with emph* in it*
+**strong **with strong** in it**
+```
+
+许多实现也限制单词内强调只能用 `*`，以避免单词包含下划线时产生不必要的
+强调。最佳实践是将它们放到内联代码中，不过用户通常不这么做。
+
+``` markdown
+internal emphasis: foo*bar*baz
+no emphasis: foo_bar_baz
+```
+
+下面规则囊括了所有这些情况，同时解析时不必回溯，效率高。
+
+首先，一些定义。
+
+[定界符](@delimiter-run)是一串 `*` ，前后没有 `*`；
+或是一串 `_`，前后没有 `_`。
+
+[左侧定界符](@left-flanking-delimiter-run)，定界符之后没有[unicode 空白]、
+[标点符号]，或者之前没有[unicode 空白]、[标点符号]、行的开始部分。
+
+[右侧定界符](@right-flanking-delimiter-run)，定界符之前没有[unicode 空白]、
+[标点符号]，或者之后没有[unicode 空白]、[标点符号]、行的结束部分。
+
+定界符一些例子。
+
+  - 位于左边而不是右边：
+
+    ```
+    ***abc
+      _abc
+    **"abc"
+     _"abc"
+    ```
+
+  - 位于右侧而不是左侧：
+
+    ```
+    abc***
+      abc_
+    "abc"**
+     _"abc"
+    ```
+
+  - 左右两侧都有：
+
+    ```
+    abc***def
+    "abc"_"def"
+    ```
+
+  - 左右两侧都没有：
+
+    ```
+    abc *** def
+    a _ b
+    ```
+
+由字符的前后内容来区分左右定界符，这种思路源于 Roopesh Chander 的
+[vfmd](http://www.vfmd.org/vfmd-spec/specification/#procedure-for-identifying-emphasis-tags)。
+vfmd 使用的术语是 "emphasis indicator string" 而不是 "delimiter
+run"，并且它用的判定方法比本规范的复杂。
+
+下面规则定义强调与着重强调：
+
+1.  单个 `*` [能开始强调](@can-open-emphasis)，如果它是
+    [左侧定界符]的部分。
+
+2.  单个 `_` [能开始强调]，如果它是[左侧定界符]而不是[右侧定界符]的部分。
+
+3.  单个 `*` [能结束强调](@can-close-emphasis)，如果它是[右侧定界符]的部分。
+
+4.  单个 `_` [能结束强调]，如果它是[右侧定界符]而不是[左侧定界符]的部分。
+
+5.  两个 `**` [能开始着重强调](@can-open-strong-emphasis)，如果它是
+    [左侧定界符]的部分。
+
+6.  两个 `__` [能开始着重强调]，如果它是[左侧定界符]而不是[右侧定界符]的部分。
+
+7.  两个 `*` [能结束着重强调](@can-close-strong-emphasis)，如果它是
+    [右侧定界符]的部分。
+
+8.  两个 `__` [能结束着重强调]，如果它是[右侧定界符]而不是[左侧定界符]的部分。
+
+9.  强调以[能开始强调]的定界符开始，[能结束强调]的定界符结束，
+    定界符字符一样(`_` 或 `*`)。开始与结束定界符之间必须是非空内联元素。
+
+10. 着重强调以[能开始着重强调]的定界符开始，[能结束着重强调]的定界符结束，
+    定界符字符一样(`_` 或 `*`)。开始与结束定界符之间必须是非空内联元素。
+
+11. `*` 不能出现在 `*` 强调或 `**` 着重强调的前后，除非用反斜杠转义。
+
+12. `_` 不能出现在 `_` 强调或 `__` 着重强调的前后，除非用反斜杠转义。
+
+上面 12 条规则兼容于多种解析器，而下面规则解决含糊情况：
+
+13. 嵌套层数应当最小。例如，解析为 `<strong>...</strong>` 要优于
+    `<em><em>...</em></em>`。
+
+14. 解析为 `<strong><em>...</em></strong>` 要优于
+    `<em><strong>..</strong></em>`。
+
+15. 当两个潜在的强调或着重强调重叠，以至于第二个开始在第一个的结尾之前
+    而结束在第一个的结尾之后，则第一个优先。
+    例如 `*foo _bar* baz_` 解析为 `<em>foo _bar</em> baz_`，而不是
+    `*foo <em>bar* baz</em>`。同理，`**foo*bar**` 解析为
+    `<em><em>foo</em>bar</em>*`，而不是 `<strong>foo*bar</strong>`。
+
+16. 当两个潜在的强调或着重强调有同一结束定界符，后开始的优先。
+    例如 `**foo **bar baz**` 解析为 `**foo <strong>bar baz</strong>`，
+    而不是 `<strong>foo **bar baz</strong>`。
+
+17. 内联代码、链接、图片及 HTML 标签比强调组合性强。因此，当在包括或
+    不包括这些元素之间选择时，选择包括。
+    例如 `*[foo*](bar)` 解析为 `*<a href="bar">foo*</a>`， 而不是
+    `<em>[foo</em>](bar)`。
+
+通过一些例子来解释这些规则。
+
+规则 1：
+
+.
+*foo bar*
+.
+<p><em>foo bar</em></p>
+.
+
+下面不是强调，因为开始的 `*` 后面是空格，因而不是[左侧定界符]的一部分：
+
+.
+a * foo bar*
+.
+<p>a * foo bar*</p>
+.
+
+下面不是强调，因为开始的 `*` 前面是数字字母，后面是标点符号，
+因而不是[左侧定界符]的一部分：
+
+.
+a*"foo"*
+.
+<p>a*&quot;foo&quot;*</p>
+.
+
+Unicode 非断字空白也视为空格：
+
+.
+* a *
+.
+<p>* a *</p>
+.
+
+`*` 强调可用于单词内：
+
+.
+foo*bar*
+.
+<p>foo<em>bar</em></p>
+.
+
+.
+5*6*78
+.
+<p>5<em>6</em>78</p>
+.
+
+规则 2：
+
+.
+_foo bar_
+.
+<p><em>foo bar</em></p>
+.
+
+下面不是强调，因为开始的 `_` 后面是空格：
+
+.
+_ foo bar_
+.
+<p>_ foo bar_</p>
+.
+
+下面不是强调，因为开始的 `_` 前面是数字字母，后面是标点符号：
+
+.
+a_"foo"_
+.
+<p>a_&quot;foo&quot;_</p>
+.
+
+`_` 强调不能用在单词内：
+
+.
+foo_bar_
+.
+<p>foo_bar_</p>
+.
+
+.
+5_6_78
+.
+<p>5_6_78</p>
+.
+
+.
+пристаням_стремятся_
+.
+<p>пристаням_стремятся_</p>
+.
+
+下面 `_` 不生成强调，因为第一个定界符是右侧的，第二个是左侧的：
+
+.
+aa_"bb"_cc
+.
+<p>aa_&quot;bb&quot;_cc</p>
+.
+
+下面没有强调，因为定界符是左侧的也是右侧的：
+
+.
+"aa"_"bb"_"cc"
+.
+<p>&quot;aa&quot;_&quot;bb&quot;_&quot;cc&quot;</p>
+.
+
+规则 3：
+
+下面不是强调，因为结束定界符不匹配开始定界符：
+
+.
+_foo*
+.
+<p>_foo*</p>
+.
+
+下面不是强调，因为结束 `*` 前面是空格：
+
+.
+*foo bar *
+.
+<p>*foo bar *</p>
+.
+
+新行也视作空格：
+
+.
+*foo bar
+*
+.
+<p>*foo bar</p>
+<ul>
+<li></li>
+</ul>
+.
+
+下面不是强调，因为第二个 `*` 前面是标点符号，后面是数字字母，因而
+不是[右侧定界符]的一部分：
+
+.
+*(*foo)
+.
+<p>*(*foo)</p>
+.
+
+这个问题可这么解决：
+
+.
+*(*foo*)*
+.
+<p><em>(<em>foo</em>)</em></p>
+.
+
+`*` 强调可用在单词内：
+
+.
+*foo*bar
+.
+<p><em>foo</em>bar</p>
+.
+
+
+规则 4：
+
+下面不是强调，因为结束定界符前是空格：
+
+.
+_foo bar _
+.
+<p>_foo bar _</p>
+.
+
+下面不是强调，因为第二个 `_` 前面是标点符号，后面是数字字母：
+
+.
+_(_foo)
+.
+<p>_(_foo)</p>
+.
+
+下面是嵌套强调：
+
+.
+_(_foo_)_
+.
+<p><em>(<em>foo</em>)</em></p>
+.
+
+`_` 强调不能用在单词内：
+
+.
+_foo_bar
+.
+<p>_foo_bar</p>
+.
+
+.
+_пристаням_стремятся
+.
+<p>_пристаням_стремятся</p>
+.
+
+.
+_foo_bar_baz_
+.
+<p><em>foo_bar_baz</em></p>
+.
+
+规则 5：
+
+.
+**foo bar**
+.
+<p><strong>foo bar</strong></p>
+.
+
+下面不是着重强调，因为开始定界符后面是空格：
+
+.
+** foo bar**
+.
+<p>** foo bar**</p>
+.
+
+下面不是着重强调，因为开始的 `**` 前面是数字字母，后面是标点符号，因而不是
+[左侧定界符]的一部分：
+
+.
+a**"foo"**
+.
+<p>a**&quot;foo&quot;**</p>
+.
+
+`**` 着重强调可用在单词内：
+
+.
+foo**bar**
+.
+<p>foo<strong>bar</strong></p>
+.
+
+规则 6：
+
+.
+__foo bar__
+.
+<p><strong>foo bar</strong></p>
+.
+
+下面不是着重强调，因为开始定界符后面是空格：
+
+.
+__ foo bar__
+.
+<p>__ foo bar__</p>
+.
+
+新行视作空格：
+
+.
+__
+foo bar__
+.
+<p>__
+foo bar__</p>
+.
+
+下面不是着重强调，因为开始的 `__` 前面是数字字母，后面是标点符号：
+
+.
+a__"foo"__
+.
+<p>a__&quot;foo&quot;__</p>
+.
+
+`__` 着重强调不能用在单词内：
+
+.
+foo__bar__
+.
+<p>foo__bar__</p>
+.
+
+.
+5__6__78
+.
+<p>5__6__78</p>
+.
+
+.
+пристаням__стремятся__
+.
+<p>пристаням__стремятся__</p>
+.
+
+.
+__foo, __bar__, baz__
+.
+<p><strong>foo, <strong>bar</strong>, baz</strong></p>
+.
+
+规则 7：
+
+下面不是着重强调，因为结束定界符前面是空格：
+
+.
+**foo bar **
+.
+<p>**foo bar **</p>
+.
+
+按规则 11 也不能解析为强调的 `*foo bar *`。
+
+下面不是着重强调，因为第二个 `**` 前面是标点符号，后面是数字字母：
+
+.
+**(**foo)
+.
+<p>**(**foo)</p>
+.
+
+这个问题可以这么解决：
+
+.
+*(**foo**)*
+.
+<p><em>(<strong>foo</strong>)</em></p>
+.
+
+.
+**Gomphocarpus (*Gomphocarpus physocarpus*, syn.
+*Asclepias physocarpa*)**
+.
+<p><strong>Gomphocarpus (<em>Gomphocarpus physocarpus</em>, syn.
+<em>Asclepias physocarpa</em>)</strong></p>
+.
+
+.
+**foo "*bar*" foo**
+.
+<p><strong>foo &quot;<em>bar</em>&quot; foo</strong></p>
+.
+
+`**` 着重强调可用在单词内：
+
+.
+**foo**bar
+.
+<p><strong>foo</strong>bar</p>
+.
+
+规则 8：
+
+下面不是着重强调，因为结束定界符前面是空格：
+
+.
+__foo bar __
+.
+<p>__foo bar __</p>
+.
+
+下面不是着重强调，因为第二个 `__` 前面是标点符号，后面是数字字母：
+
+.
+__(__foo)
+.
+<p>__(__foo)</p>
+.
+
+这个问题可以这么解决：
+
+.
+_(__foo__)_
+.
+<p><em>(<strong>foo</strong>)</em></p>
+.
+
+`__` 着重强调不能用在单词内：
+
+.
+__foo__bar
+.
+<p>__foo__bar</p>
+.
+
+.
+__пристаням__стремятся
+.
+<p>__пристаням__стремятся</p>
+.
+
+.
+__foo__bar__baz__
+.
+<p><strong>foo__bar__baz</strong></p>
+.
+
+规则 9：
+
+任意非空内联元素可以是强调元素的内容。
+
+.
+*foo [bar](/url)*
+.
+<p><em>foo <a href="/url">bar</a></em></p>
+.
+
+.
+*foo
+bar*
+.
+<p><em>foo
+bar</em></p>
+.
+
+特别的，强调与着重强调可嵌套到强调中：
+
+.
+_foo __bar__ baz_
+.
+<p><em>foo <strong>bar</strong> baz</em></p>
+.
+
+.
+_foo _bar_ baz_
+.
+<p><em>foo <em>bar</em> baz</em></p>
+.
+
+.
+__foo_ bar_
+.
+<p><em><em>foo</em> bar</em></p>
+.
+
+.
+*foo *bar**
+.
+<p><em>foo <em>bar</em></em></p>
+.
+
+.
+*foo **bar** baz*
+.
+<p><em>foo <strong>bar</strong> baz</em></p>
+.
+
+但是注意：
+
+.
+*foo**bar**baz*
+.
+<p><em>foo</em><em>bar</em><em>baz</em></p>
+.
+
+上例中内部的分界符[能结束强调]，而下例有空格的则不能：
+
+.
+***foo** bar*
+.
+<p><em><strong>foo</strong> bar</em></p>
+.
+
+.
+*foo **bar***
+.
+<p><em>foo <strong>bar</strong></em></p>
+.
+
+注意下例没有着重强调，因为开始的定界符被 `bar` 前面第一个 `*` 结束：
+
+.
+*foo**bar***
+.
+<p><em>foo</em><em>bar</em>**</p>
+.
+
+
+嵌套层数不限：
+
+.
+*foo **bar *baz* bim** bop*
+.
+<p><em>foo <strong>bar <em>baz</em> bim</strong> bop</em></p>
+.
+
+.
+*foo [*bar*](/url)*
+.
+<p><em>foo <a href="/url"><em>bar</em></a></em></p>
+.
+
+不能有空的强调：
+
+.
+** is not an empty emphasis
+.
+<p>** is not an empty emphasis</p>
+.
+
+.
+**** is not an empty strong emphasis
+.
+<p>**** is not an empty strong emphasis</p>
+.
+
+
+规则 10：
+
+任意非空内联元素可以是着重强调元素的内容。
+
+.
+**foo [bar](/url)**
+.
+<p><strong>foo <a href="/url">bar</a></strong></p>
+.
+
+.
+**foo
+bar**
+.
+<p><strong>foo
+bar</strong></p>
+.
+
+特别的，强调与着重强调可嵌套到着重强调中：
+
+.
+__foo _bar_ baz__
+.
+<p><strong>foo <em>bar</em> baz</strong></p>
+.
+
+.
+__foo __bar__ baz__
+.
+<p><strong>foo <strong>bar</strong> baz</strong></p>
+.
+
+.
+____foo__ bar__
+.
+<p><strong><strong>foo</strong> bar</strong></p>
+.
+
+.
+**foo **bar****
+.
+<p><strong>foo <strong>bar</strong></strong></p>
+.
+
+.
+**foo *bar* baz**
+.
+<p><strong>foo <em>bar</em> baz</strong></p>
+.
+
+但是注意：
+
+.
+**foo*bar*baz**
+.
+<p><em><em>foo</em>bar</em>baz**</p>
+.
+
+上例中内部的分界符[能结束强调]，而下例有空格的则不能：
+
+.
+***foo* bar**
+.
+<p><strong><em>foo</em> bar</strong></p>
+.
+
+.
+**foo *bar***
+.
+<p><strong>foo <em>bar</em></strong></p>
+.
+
+嵌套层数不限：
+
+.
+**foo *bar **baz**
+bim* bop**
+.
+<p><strong>foo <em>bar <strong>baz</strong>
+bim</em> bop</strong></p>
+.
+
+.
+**foo [*bar*](/url)**
+.
+<p><strong>foo <a href="/url"><em>bar</em></a></strong></p>
+.
+
+不能有空的强调：
+
+.
+__ is not an empty emphasis
+.
+<p>__ is not an empty emphasis</p>
+.
+
+.
+____ is not an empty strong emphasis
+.
+<p>____ is not an empty strong emphasis</p>
+.
+
+
+规则 11：
+
+.
+foo ***
+.
+<p>foo ***</p>
+.
+
+.
+foo *\**
+.
+<p>foo <em>*</em></p>
+.
+
+.
+foo *_*
+.
+<p>foo <em>_</em></p>
+.
+
+.
+foo *****
+.
+<p>foo *****</p>
+.
+
+.
+foo **\***
+.
+<p>foo <strong>*</strong></p>
+.
+
+.
+foo **_**
+.
+<p>foo <strong>_</strong></p>
+.
+
+注意当定界符不匹配时，规则 11 规定，多出的 `*` 位于强调的外面：
+
+.
+**foo*
+.
+<p>*<em>foo</em></p>
+.
+
+.
+*foo**
+.
+<p><em>foo</em>*</p>
+.
+
+.
+***foo**
+.
+<p>*<strong>foo</strong></p>
+.
+
+.
+****foo*
+.
+<p>***<em>foo</em></p>
+.
+
+.
+**foo***
+.
+<p><strong>foo</strong>*</p>
+.
+
+.
+*foo****
+.
+<p><em>foo</em>***</p>
+.
+
+
+规则 12：
+
+.
+foo ___
+.
+<p>foo ___</p>
+.
+
+.
+foo _\__
+.
+<p>foo <em>_</em></p>
+.
+
+.
+foo _*_
+.
+<p>foo <em>*</em></p>
+.
+
+.
+foo _____
+.
+<p>foo _____</p>
+.
+
+.
+foo __\___
+.
+<p>foo <strong>_</strong></p>
+.
+
+.
+foo __*__
+.
+<p>foo <strong>*</strong></p>
+.
+
+.
+__foo_
+.
+<p>_<em>foo</em></p>
+.
+
+注意当定界符不匹配时，规则 11 规定，多出的 `_` 位于强调的外面：
+
+.
+_foo__
+.
+<p><em>foo</em>_</p>
+.
+
+.
+___foo__
+.
+<p>_<strong>foo</strong></p>
+.
+
+.
+____foo_
+.
+<p>___<em>foo</em></p>
+.
+
+.
+__foo___
+.
+<p><strong>foo</strong>_</p>
+.
+
+.
+_foo____
+.
+<p><em>foo</em>___</p>
+.
+
+规则 13 意味着如果想直接嵌套强调，需要用不同的分界符：
+
+.
+**foo**
+.
+<p><strong>foo</strong></p>
+.
+
+.
+*_foo_*
+.
+<p><em><em>foo</em></em></p>
+.
+
+.
+__foo__
+.
+<p><strong>foo</strong></p>
+.
+
+.
+_*foo*_
+.
+<p><em><em>foo</em></em></p>
+.
+
+不过，着重强调可直接嵌套着重强调，不用切换定界符：
+
+.
+****foo****
+.
+<p><strong><strong>foo</strong></strong></p>
+.
+
+.
+____foo____
+.
+<p><strong><strong>foo</strong></strong></p>
+.
+
+
+规则 13 可应用于任意长的定界符：
+
+.
+******foo******
+.
+<p><strong><strong><strong>foo</strong></strong></strong></p>
+.
+
+规则 14：
+
+.
+***foo***
+.
+<p><strong><em>foo</em></strong></p>
+.
+
+.
+_____foo_____
+.
+<p><strong><strong><em>foo</em></strong></strong></p>
+.
+
+规则 15：
+
+.
+*foo _bar* baz_
+.
+<p><em>foo _bar</em> baz_</p>
+.
+
+.
+**foo*bar**
+.
+<p><em><em>foo</em>bar</em>*</p>
+.
+
+
+规则 16：
+
+.
+**foo **bar baz**
+.
+<p>**foo <strong>bar baz</strong></p>
+.
+
+.
+*foo *bar baz*
+.
+<p>*foo <em>bar baz</em></p>
+.
+
+规则 17：
+
+.
+*[bar*](/url)
+.
+<p>*<a href="/url">bar*</a></p>
+.
+
+.
+_foo [bar_](/url)
+.
+<p>_foo <a href="/url">bar_</a></p>
+.
+
+.
+*<img src="foo" title="*"/>
+.
+<p>*<img src="foo" title="*"/></p>
+.
+
+.
+**<a href="**">
+.
+<p>**<a href="**"></p>
+.
+
+.
+__<a href="__">
+.
+<p>__<a href="__"></p>
+.
+
+.
+*a `*`*
+.
+<p><em>a <code>*</code></em></p>
+.
+
+.
+_a `_`_
+.
+<p><em>a <code>_</code></em></p>
+.
+
+.
+**a<http://foo.bar/?q=**>
+.
+<p>**a<a href="http://foo.bar/?q=**">http://foo.bar/?q=**</a></p>
+.
+
+.
+__a<http://foo.bar/?q=__>
+.
+<p>__a<a href="http://foo.bar/?q=__">http://foo.bar/?q=__</a></p>
+.
+
+## 链接
+
+链接包含[链接文本]、[链接目标]及可选的[链接标题]。链接文本是链接的可见
+文本，链接目标是链接的 URI。Markdown 有两种基本类型链接。[内联链接]
+的目标与标题跟在链接文本的后面。[引用链接]的目标与标题在文档其它地方。
+
+[链接文本](@link-text) 是用方括号(`[` 和 `]`)` 包裹的零或多个内联元素。
+有下面规则：
+
+- 链接不能包含其它链接。
+
+- [链接文本]内可以用方括号，或者用反斜杠转义，或者成对出现。
+
+- [内联代码]、[自动链接]及[HTML 标签]比链接文本的方括号组合性强。
+  例如 `` [foo`]` `` 不能是链接文本，因为第二个 `]` 是内联代码的一部分。
+
+- 链接文本的方括号比[链接和着重强调]组合性强，例如
+  `*[foo*](url)` 是链接。
+
+[链接目标](@link-destination) 是
+
+- 用尖括号(`<...>`)包裹的一串字符，不包含断行符或未转义的 `<`、`>`
+
+- 或者一串非空字符，不包含 ASCII 空白或控制字符。若包含圆括号，或者用反斜杠
+  转义，或者成对出现，但不能出现在另一对未转义圆括号内。
+
+[链接标题](@link-title) 是
+
+- 用双引号(`"`)包裹的一串字符，若包含 `"` 需用反斜杠转义。
+
+- 或者用单引号(`"`)包裹的一串字符，若包含 `'` 需用反斜杠转义。
+
+- 或者用圆括号(`(...)`)包裹的一串字符，若包含 `)` 需用反斜杠转义。
+
+尽管[链接标题]可以多行，但不能包含空行。
+
+[内联链接](@inline-link)由[链接文本]，紧随其后的 `(`，可选的[空白]，
+可选的[链接目标]，可选的[链接标题]，可选的[空白]及 `)` 组成。链接目标
+与标题之间用空格隔开。链接的文本包含[链接文本]里面的内联元素，不包含
+包裹用的方括号。链接的 URI 包含链接目标，不包含包裹用的尖括号。
+链接的标题包含链接标题，不包括包裹用的定界符。
+
+下面是一个简单的内联链接：
+
+.
+[link](/uri "title")
+.
+<p><a href="/uri" title="title">link</a></p>
+.
+
+可省略标题：
+
+.
+[link](/uri)
+.
+<p><a href="/uri">link</a></p>
+.
+
+标题与目标均可省略：
+
+.
+[link]()
+.
+<p><a href="">link</a></p>
+.
+
+.
+[link](<>)
+.
+<p><a href="">link</a></p>
+.
+
+若目标包含空格，必须包含在尖括号内：
+
+.
+[link](/my uri)
+.
+<p>[link](/my uri)</p>
+.
+
+.
+[link](</my uri>)
+.
+<p><a href="/my%20uri">link</a></p>
+.
+
+目标不能包含断行符，即使用尖括号：
+
+.
+[link](foo
+bar)
+.
+<p>[link](foo
+bar)</p>
+.
+
+.
+[link](<foo
+bar>)
+.
+<p>[link](<foo
+bar>)</p>
+.
+
+圆括号成对可以不转义：
+
+.
+[link]((foo)and(bar))
+.
+<p><a href="(foo)and(bar)">link</a></p>
+.
+
+但是若圆括号包含圆括号，需要转义或者使用 `<...>`:
+
+.
+[link](foo(and(bar)))
+.
+<p>[link](foo(and(bar)))</p>
+.
+
+.
+[link](foo(and\(bar\)))
+.
+<p><a href="foo(and(bar))">link</a></p>
+.
+
+.
+[link](<foo(and(bar))>)
+.
+<p><a href="foo(and(bar))">link</a></p>
+.
+
+圆括号与其它符号可转义：
+
+.
+[link](foo\)\:)
+.
+<p><a href="foo):">link</a></p>
+.
+
+链接目标内的 URL 转义过的字符保持不变，因为它们是有效的 URL 字符。
+ HTML 实体解析为 UTF-8 代码点。
+
+.
+[link](foo%20b&auml;)
+.
+<p><a href="foo%20b%C3%A4">link</a></p>
+.
+
+注意标题常用作目标，若忽略目标而保留标题，将得到意外的结果：
+
+.
+[link]("title")
+.
+<p><a href="%22title%22">link</a></p>
+.
+
+标题可在单引号，双引号或圆括号中：
+
+.
+[link](/url "title")
+[link](/url 'title')
+[link](/url (title))
+.
+<p><a href="/url" title="title">link</a>
+<a href="/url" title="title">link</a>
+<a href="/url" title="title">link</a></p>
+.
+
+标题中可使用转义字符与实体：
+
+.
+[link](/url "title \"&quot;")
+.
+<p><a href="/url" title="title &quot;&quot;">link</a></p>
+.
+
+嵌套引号需转义：
+
+.
+[link](/url "title "and" title")
+.
+<p>[link](/url &quot;title &quot;and&quot; title&quot;)</p>
+.
+
+不过可用简单的办法，用不同的引号：
+
+.
+[link](/url 'title "and" title')
+.
+<p><a href="/url" title="title &quot;and&quot; title">link</a></p>
+.
+
+注意：`Markdown.pl` 不允许双引号标题包含双引号，它的测试集演示了这点。
+但是看不出这样做的理由。因为有多种方式在标题内包含双引号：用反斜杠转义，
+实体或用不同引号包裹标题。`Markdown.pl` 对标题的处理有多个奇怪的地方。
+例如，内联链接能用单引号标题，但是引用链接不能。引用链接的标题能以 `"` 开始
+ `)` 结束，但是内联链接不能。`Markdown.pl` 1.0.1 标题甚至可以不用引号包裹，
+但是 1.0.2b8 不能。制定一个简单而合理的规则，让内联链接与引用链接的处理一致，
+这样大概更好。
+
+目标与标题前后可以有[空白]：
+
+.
+[link](   /uri
+  "title"  )
+.
+<p><a href="/uri" title="title">link</a></p>
+.
+
+但是链接文本与后面圆括号间不能有空白：
+
+.
+[link] (/uri)
+.
+<p>[link] (/uri)</p>
+.
+
+链接文本可以包含成对的方括号，不成对的需要转义：
+
+.
+[link [foo [bar]]](/uri)
+.
+<p><a href="/uri">link [foo [bar]]</a></p>
+.
+
+.
+[link] bar](/uri)
+.
+<p>[link] bar](/uri)</p>
+.
+
+.
+[link [bar](/uri)
+.
+<p>[link <a href="/uri">bar</a></p>
+.
+
+.
+[link \[bar](/uri)
+.
+<p><a href="/uri">link [bar</a></p>
+.
+
+链接文本可包含内联元素：
+
+.
+[link *foo **bar** `#`*](/uri)
+.
+<p><a href="/uri">link <em>foo <strong>bar</strong> <code>#</code></em></a></p>
+.
+
+.
+[![moon](moon.jpg)](/uri)
+.
+<p><a href="/uri"><img src="moon.jpg" alt="moon" /></a></p>
+.
+
+但是链接不能嵌套：
+
+.
+[foo [bar](/uri)](/uri)
+.
+<p>[foo <a href="/uri">bar</a>](/uri)</p>
+.
+
+.
+[foo *[bar [baz](/uri)](/uri)*](/uri)
+.
+<p>[foo <em>[bar <a href="/uri">baz</a>](/uri)</em>](/uri)</p>
+.
+
+.
+![[[foo](uri1)](uri2)](uri3)
+.
+<p><img src="uri3" alt="[foo](uri2)" /></p>
+.
+
+下例演示链接优先于强调：
+
+.
+*[foo*](/uri)
+.
+<p>*<a href="/uri">foo*</a></p>
+.
+
+.
+[foo *bar](baz*)
+.
+<p><a href="baz*">foo *bar</a></p>
+.
+
+注意，方括号若不是链接的一部分则不优先考虑：
+
+.
+*foo [bar* baz]
+.
+<p><em>foo [bar</em> baz]</p>
+.
+
+下例演示 HTML 标签、内联代码、自动链接优先于链接：
+
+.
+[foo <bar attr="](baz)">
+.
+<p>[foo <bar attr="](baz)"></p>
+.
+
+.
+[foo`](/uri)`
+.
+<p>[foo<code>](/uri)</code></p>
+.
+
+.
+[foo<http://example.com?search=](uri)>
+.
+<p>[foo<a href="http://example.com?search=%5D(uri)">http://example.com?search=](uri)</a></p>
+.
+
+有三种[引用链接](@reference-link)：[全](#full-reference-link)，
+[空](#collapsed-reference-link)，[短](#shortcut-reference-link)。
+
+[全引用链接](@full-reference-link) 由[链接文本]、可选的[空白]及[链接标签]
+组成。链接标签匹配在文档其它位置的[链接引用定义]。
+
+[链接标签](@link-label)由方括号包裹，不能包含未转义的方括号，最多包含
+999 个字符。
+
+一个标签[匹配](@matches)另一个，在于它们的标准化形式一样。标准化一个标签时，
+先做 Unicode 大小写转换，再将连续的[空白]合并成一个空格。如果有多个匹配，
+优先使用最先在文档中出现的。这时可产生一条警告。
+
+链接标签的内容解析为内联元素。链接的 URI 与标题由匹配的[链接引用定义]定义。
+
+示例：
+
+.
+[foo][bar]
+
+[bar]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+[链接文本]的规则同[内联链接]的。
+
+链接文本可包含成对方括号，不成对的需要转义：
+
+.
+[link [foo [bar]]][ref]
+
+[ref]: /uri
+.
+<p><a href="/uri">link [foo [bar]]</a></p>
+.
+
+.
+[link \[bar][ref]
+
+[ref]: /uri
+.
+<p><a href="/uri">link [bar</a></p>
+.
+
+链接文本可包含内联元素：
+
+.
+[link *foo **bar** `#`*][ref]
+
+[ref]: /uri
+.
+<p><a href="/uri">link <em>foo <strong>bar</strong> <code>#</code></em></a></p>
+.
+
+.
+[![moon](moon.jpg)][ref]
+
+[ref]: /uri
+.
+<p><a href="/uri"><img src="moon.jpg" alt="moon" /></a></p>
+.
+
+但是链接不能包含其它链接：
+
+.
+[foo [bar](/uri)][ref]
+
+[ref]: /uri
+.
+<p>[foo <a href="/uri">bar</a>]<a href="/uri">ref</a></p>
+.
+
+.
+[foo *bar [baz][ref]*][ref]
+
+[ref]: /uri
+.
+<p>[foo <em>bar <a href="/uri">baz</a></em>]<a href="/uri">ref</a></p>
+.
+
+上例是两个[短引用链接]，而不是一个[全引用链接]。
+
+下例说明链接文本比强调优先考虑：
+
+.
+*[foo*][ref]
+
+[ref]: /uri
+.
+<p>*<a href="/uri">foo*</a></p>
+.
+
+.
+[foo *bar][ref]
+
+[ref]: /uri
+.
+<p><a href="/uri">foo *bar</a></p>
+.
+
+下例说明HTML 标签，内联代码及自动链接比链接优先考虑：
+
+.
+[foo <bar attr="][ref]">
+
+[ref]: /uri
+.
+<p>[foo <bar attr="][ref]"></p>
+.
+
+.
+[foo`][ref]`
+
+[ref]: /uri
+.
+<p>[foo<code>][ref]</code></p>
+.
+
+.
+[foo<http://example.com?search=][ref]>
+
+[ref]: /uri
+.
+<p>[foo<a href="http://example.com?search=%5D%5Bref%5D">http://example.com?search=][ref]</a></p>
+.
+
+匹配时不区分大小写：
+
+.
+[foo][BaR]
+
+[bar]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+使用 Unicode 大小写：
+
+.
+[Толпой][Толпой] is a Russian word.
+
+[ТОЛПОЙ]: /url
+.
+<p><a href="/url">Толпой</a> is a Russian word.</p>
+.
+
+内部的连续[空白]视为一个空格：
+
+.
+[Foo
+  bar]: /url
+
+[Baz][Foo bar]
+.
+<p><a href="/url">Baz</a></p>
+.
+
+[链接文本]与[链接标签]之间可有[空白]：
+
+.
+[foo] [bar]
+
+[bar]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+.
+[foo]
+[bar]
+
+[bar]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+当匹配到多个[引用链接定义]时用第一个：
+
+.
+[foo]: /url1
+
+[foo]: /url2
+
+[bar][foo]
+.
+<p><a href="/url1">bar</a></p>
+.
+
+注意匹配是以普通文本而不是以解析过的来比较。下例不匹配，尽管与解析后的一样：
+
+.
+[bar][foo\!]
+
+[foo!]: /url
+.
+<p>[bar][foo!]</p>
+.
+
+[链接标签]不能包含方括号，除非转义：
+
+.
+[foo][ref[]
+
+[ref[]: /uri
+.
+<p>[foo][ref[]</p>
+<p>[ref[]: /uri</p>
+.
+
+.
+[foo][ref[bar]]
+
+[ref[bar]]: /uri
+.
+<p>[foo][ref[bar]]</p>
+<p>[ref[bar]]: /uri</p>
+.
+
+.
+[[[foo]]]
+
+[[[foo]]]: /url
+.
+<p>[[[foo]]]</p>
+<p>[[[foo]]]: /url</p>
+.
+
+.
+[foo][ref\[]
+
+[ref\[]: /uri
+.
+<p><a href="/uri">foo</a></p>
+.
+
+[空引用链接](@collapsed-reference-link)由[链接标签]、可选的[空白]、`[]`
+组成。链接标签[匹配]文档其它位置的[链接引用定义]。
+链接标签按内联元素解析，作为链接的文本。链接的 URI 和标题由匹配的
+链接引用定义提供。因此，`[foo][]` 等于 `[foo][foo]`。
+
+.
+[foo][]
+
+[foo]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+.
+[*foo* bar][]
+
+[*foo* bar]: /url "title"
+.
+<p><a href="/url" title="title"><em>foo</em> bar</a></p>
+.
+
+链接标签不区分大小写：
+
+.
+[Foo][]
+
+[foo]: /url "title"
+.
+<p><a href="/url" title="title">Foo</a></p>
+.
+
+
+同全引用链接，两对括号之间可以有[空白]：
+
+.
+[foo]
+[]
+
+[foo]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+[短引用链接](@shortcut-reference-link)只有[链接标签]，没有
+`[]` 和链接标签。链接标签[匹配]文档其它地方的[链接引用定义]。
+链接标签按内联元素解析，作为链接的文本。链接的 URI 和标题由匹配的
+链接引用定义提供。因此，`[foo]` 等同于 `[foo][]`。
+
+.
+[foo]
+
+[foo]: /url "title"
+.
+<p><a href="/url" title="title">foo</a></p>
+.
+
+.
+[*foo* bar]
+
+[*foo* bar]: /url "title"
+.
+<p><a href="/url" title="title"><em>foo</em> bar</a></p>
+.
+
+.
+[[*foo* bar]]
+
+[*foo* bar]: /url "title"
+.
+<p>[<a href="/url" title="title"><em>foo</em> bar</a>]</p>
+.
+
+.
+[[bar [foo]
+
+[foo]: /url
+.
+<p>[[bar <a href="/url">foo</a></p>
+.
+
+链接标签不区分大小写：
+
+.
+[Foo]
+
+[foo]: /url "title"
+.
+<p><a href="/url" title="title">Foo</a></p>
+.
+
+链接之后的空格应保留：
+
+.
+[foo] bar
+
+[foo]: /url
+.
+<p><a href="/url">foo</a> bar</p>
+.
+
+想得到字面上的方括号文本，用反斜杠转义开始的方括号，以避免当作链接：
+
+.
+\[foo]
+
+[foo]: /url "title"
+.
+<p>[foo]</p>
+.
+
+注意下面是链接：
+
+.
+[foo*]: /url
+
+*[foo*]
+.
+<p>*<a href="/url">foo*</a></p>
+.
+
+全引用链接优先于短引用链接：
+
+.
+[foo][bar]
+
+[foo]: /url1
+[bar]: /url2
+.
+<p><a href="/url2">foo</a></p>
+.
+
+下面 `[bar][baz]` 解析为引用，`[foo]` 为普通文本：
+
+.
+[foo][bar][baz]
+
+[baz]: /url
+.
+<p>[foo]<a href="/url">bar</a></p>
+.
+
+但是下面 `[foo][bar]` 解析为引用，因为定义了 `[bar]`：
+
+.
+[foo][bar][baz]
+
+[baz]: /url1
+[bar]: /url2
+.
+<p><a href="/url2">foo</a><a href="/url1">baz</a></p>
+.
+
+下面 `[foo]` 不解析为短引用，因为它后面跟着一个链接标签，即使没有
+定义 `[bar]` ：
+
+.
+[foo][bar][baz]
+
+[baz]: /url1
+[foo]: /url2
+.
+<p>[foo]<a href="/url1">bar</a></p>
+.
+
+## 图像
+
+图像的语法类似于链接，有一点不同。[链接文本]在这为
+[图像描述](@image-description)。两者规则一样，不过图像描述以 `![` 而
+不是 `[` 开始，并且可以包含链接。图像描述的内容解析为内联元素，
+当图像渲染为 HTML 时它用作图像的 `alt` 属性。
+
+.
+![foo](/url "title")
+.
+<p><img src="/url" alt="foo" title="title" /></p>
+.
+
+.
+![foo *bar*]
+
+[foo *bar*]: train.jpg "train & tracks"
+.
+<p><img src="train.jpg" alt="foo bar" title="train &amp; tracks" /></p>
+.
+
+.
+![foo ![bar](/url)](/url2)
+.
+<p><img src="/url2" alt="foo bar" /></p>
+.
+
+.
+![foo [bar](/url)](/url2)
+.
+<p><img src="/url2" alt="foo bar" /></p>
+.
+
+尽管本规范关注解析而不是渲染，不过推荐只用纯文本作为[图像描述]。注意
+在上面的示例中，alt 属性值为 `foo bar`，不是 `foo [bar](/url)` 或
+`foo <a href="/url">bar</a>`。只渲染纯文本而没有格式化。
+
+.
+![foo *bar*][]
+
+[foo *bar*]: train.jpg "train & tracks"
+.
+<p><img src="train.jpg" alt="foo bar" title="train &amp; tracks" /></p>
+.
+
+.
+![foo *bar*][foobar]
+
+[FOOBAR]: train.jpg "train & tracks"
+.
+<p><img src="train.jpg" alt="foo bar" title="train &amp; tracks" /></p>
+.
+
+.
+![foo](train.jpg)
+.
+<p><img src="train.jpg" alt="foo" /></p>
+.
+
+.
+My ![foo bar](/path/to/train.jpg  "title"   )
+.
+<p>My <img src="/path/to/train.jpg" alt="foo bar" title="title" /></p>
+.
+
+.
+![foo](<url>)
+.
+<p><img src="url" alt="foo" /></p>
+.
+
+.
+![](/url)
+.
+<p><img src="/url" alt="" /></p>
+.
+
+引用类型：
+
+.
+![foo] [bar]
+
+[bar]: /url
+.
+<p><img src="/url" alt="foo" /></p>
+.
+
+.
+![foo] [bar]
+
+[BAR]: /url
+.
+<p><img src="/url" alt="foo" /></p>
+.
+
+空：
+
+.
+![foo][]
+
+[foo]: /url "title"
+.
+<p><img src="/url" alt="foo" title="title" /></p>
+.
+
+.
+![*foo* bar][]
+
+[*foo* bar]: /url "title"
+.
+<p><img src="/url" alt="foo bar" title="title" /></p>
+.
+
+标签不区分大小写：
+
+.
+![Foo][]
+
+[foo]: /url "title"
+.
+<p><img src="/url" alt="Foo" title="title" /></p>
+.
+
+同全引用链接，两对括号之间可以有[空白]：
+
+.
+![foo]
+[]
+
+[foo]: /url "title"
+.
+<p><img src="/url" alt="foo" title="title" /></p>
+.
+
+短：
+
+.
+![foo]
+
+[foo]: /url "title"
+.
+<p><img src="/url" alt="foo" title="title" /></p>
+.
+
+.
+![*foo* bar]
+
+[*foo* bar]: /url "title"
+.
+<p><img src="/url" alt="foo bar" title="title" /></p>
+.
+
+注意链接标签不能包含未转义的括号：
+
+.
+![[foo]]
+
+[[foo]]: /url "title"
+.
+<p>![[foo]]</p>
+<p>[[foo]]: /url &quot;title&quot;</p>
+.
+
+链接标签不区分大小写：
+
+.
+![Foo]
+
+[foo]: /url "title"
+.
+<p><img src="/url" alt="Foo" title="title" /></p>
+.
+
+只想得到字面上的方括号文本，可用反斜杠转义 `!` 与 `[`：
+
+.
+\!\[foo]
+
+[foo]: /url "title"
+.
+<p>![foo]</p>
+.
+
+链接在字面 `!` 后面时，用反斜杠转义 `!`：
+
+.
+\![foo]
+
+[foo]: /url "title"
+.
+<p>!<a href="/url" title="title">foo</a></p>
+.
+
+## 自动链接
+
+[自动链接](@autolink)是由尖括号(`<...>`)包裹的绝对 URI 与 email 地址。
+它将解析为链接，以 URL 或 email 地址作为链接标签。
+
+[URI 自动链接](@uri-autolink)由 `<`，[绝对 URI]、`>` 组成。[绝对 URI]
+不包含 `<`。它被解析为一个指向 URI 的链接，以 URI 作为链接的标签。
+
+[绝对 URI](@absolute-uri)由[协议]，冒号(`:`)及一串字符组成。包含
+ ASCII [空白]、控制字符、`<` 与 `>` 时需要编码，例如空格为 `%20` 。
+
+支持下面[协议](@scheme)，不区分大小写：
+`coap`, `doi`, `javascript`, `aaa`, `aaas`, `about`, `acap`, `cap`,
+`cid`, `crid`, `data`, `dav`, `dict`, `dns`, `file`, `ftp`, `geo`, `go`,
+`gopher`, `h323`, `http`, `https`, `iax`, `icap`, `im`, `imap`, `info`,
+`ipp`, `iris`, `iris.beep`, `iris.xpc`, `iris.xpcs`, `iris.lwz`, `ldap`,
+`mailto`, `mid`, `msrp`, `msrps`, `mtqp`, `mupdate`, `news`, `nfs`,
+`ni`, `nih`, `nntp`, `opaquelocktoken`, `pop`, `pres`, `rtsp`,
+`service`, `session`, `shttp`, `sieve`, `sip`, `sips`, `sms`, `snmp`,`
+soap.beep`, `soap.beeps`, `tag`, `tel`, `telnet`, `tftp`, `thismessage`,
+`tn3270`, `tip`, `tv`, `urn`, `vemmi`, `ws`, `wss`, `xcon`,
+`xcon-userid`, `xmlrpc.beep`, `xmlrpc.beeps`, `xmpp`, `z39.50r`,
+`z39.50s`, `adiumxtra`, `afp`, `afs`, `aim`, `apt`,` attachment`, `aw`,
+`beshare`, `bitcoin`, `bolo`, `callto`, `chrome`,` chrome-extension`,
+`com-eventbrite-attendee`, `content`, `cvs`,` dlna-playsingle`,
+`dlna-playcontainer`, `dtn`, `dvb`, `ed2k`, `facetime`, `feed`,
+`finger`, `fish`, `gg`, `git`, `gizmoproject`, `gtalk`, `hcp`, `icon`,
+`ipn`, `irc`, `irc6`, `ircs`, `itms`, `jar`, `jms`, `keyparc`, `lastfm`,
+`ldaps`, `magnet`, `maps`, `market`,` message`, `mms`, `ms-help`,
+`msnim`, `mumble`, `mvn`, `notes`, `oid`, `palm`, `paparazzi`,
+`platform`, `proxy`, `psyc`, `query`, `res`, `resource`, `rmi`, `rsync`,
+`rtmp`, `secondlife`, `sftp`, `sgn`, `skype`, `smb`, `soldat`,
+`spotify`, `ssh`, `steam`, `svn`, `teamspeak`, `things`, `udp`,
+`unreal`, `ut2004`, `ventrilo`, `view-source`, `webcal`, `wtai`,
+`wyciwyg`, `xfire`, `xri`, `ymsgr`.
+
+下面是有效的自动链接：
+
+.
+<http://foo.bar.baz>
+.
+<p><a href="http://foo.bar.baz">http://foo.bar.baz</a></p>
+.
+
+.
+<http://foo.bar.baz/test?q=hello&id=22&boolean>
+.
+<p><a href="http://foo.bar.baz/test?q=hello&amp;id=22&amp;boolean">http://foo.bar.baz/test?q=hello&amp;id=22&amp;boolean</a></p>
+.
+
+.
+<irc://foo.bar:2233/baz>
+.
+<p><a href="irc://foo.bar:2233/baz">irc://foo.bar:2233/baz</a></p>
+.
+
+全大写也可以：
+
+.
+<MAILTO:FOO@BAR.BAZ>
+.
+<p><a href="MAILTO:FOO@BAR.BAZ">MAILTO:FOO@BAR.BAZ</a></p>
+.
+
+自动链接不能包含空白：
+
+.
+<http://foo.bar/baz bim>
+.
+<p>&lt;http://foo.bar/baz bim&gt;</p>
+.
+
+用反斜杠转义无效：
+
+.
+<http://example.com/\[\>
+.
+<p><a href="http://example.com/%5C%5B%5C">http://example.com/\[\</a></p>
+.
+
+[email 自动链接](@email-autolink)由`<`，[email 地址]、`>` 组成。
+链接标签是 email 地址，URL 是 `mailto:` 加上其后的 email 地址。
+
+[email 地址](@email-address)匹配[HTML5 规范的非标准正则
+表达式](https://html.spec.whatwg.org/multipage/forms.html#e-mail-state-(type=email)):
+
+    /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?
+    (?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+
+email 自动链接示例：
+
+.
+<foo@bar.example.com>
+.
+<p><a href="mailto:foo@bar.example.com">foo@bar.example.com</a></p>
+.
+
+.
+<foo+special@Bar.baz-bar0.com>
+.
+<p><a href="mailto:foo+special@Bar.baz-bar0.com">foo+special@Bar.baz-bar0.com</a></p>
+.
+
+email 自动链接内用反斜杠转义无效：
+
+.
+<foo\+@bar.example.com>
+.
+<p>&lt;foo+@bar.example.com&gt;</p>
+.
+
+下面不是自动链接：
+
+.
+<>
+.
+<p>&lt;&gt;</p>
+.
+
+.
+<heck://bing.bong>
+.
+<p>&lt;heck://bing.bong&gt;</p>
+.
+
+.
+< http://foo.bar >
+.
+<p>&lt; http://foo.bar &gt;</p>
+.
+
+.
+<foo.bar.baz>
+.
+<p>&lt;foo.bar.baz&gt;</p>
+.
+
+.
+<localhost:5001/foo>
+.
+<p>&lt;localhost:5001/foo&gt;</p>
+.
+
+.
+http://example.com
+.
+<p>http://example.com</p>
+.
+
+.
+foo@bar.example.com
+.
+<p>foo@bar.example.com</p>
+.
+
+
+## 原生 HTML
+
+在 `<` 与 `>` 之间的文本，好像一个 HTML 标签，按原生 HTML 标签处理，
+在渲染为 HTML 时不转义。标签与属性名字不限于目前的 HTML 标签，
+故自定义标签（甚至是 DocBook 标签）也可使用。
+
+标签语法:
+
+[标签名字](@tag-name)由一个 ASCII 字母及其后零或多个 ASCII 字母或
+数字组成。
+
+[属性](@attribute)由[空白]、[属性名字]及可选的[属性值]组成。
+
+[属性名字](@attribute-name)由 ASCII 字母、`_` 或 `:` 及其后零或多
+个 ASCII 字母、数字、`_`、`:` 或 `-` 组成。注意这是按 XML 规范，
+限制为 ASCII，HTML5 较宽松。
+
+[属性值赋值](@attribute-value-specification)由可选的[空白]，一个 `=` ，
+可选的[空白]及[属性值]组成。
+
+[属性值](@attribute-value) 包含[无引号属性值]、[单引号属性值]或
+[双引号属性值]。
+
+[无引号属性值](@unquoted-attribute-value) 是一串非空字符，不包含空格,
+`"`, `'`, `=`, `<`, `>`, 或 `` ` ``。
+
+[单引号属性值](@single-quoted-attribute-value) 由 `'`，一串不包含 `'` 的
+字符，`'` 组成。
+
+[双引号属性值](@double-quoted-attribute-value) 由 `"`，一串不包含 `"` 的
+字符，`"` 组成。
+
+[开始标签](@open-tag)由 `<`，[标签名字]，可选的[属性]，可选的[空白]，
+可选的 `/`，`>` 组成。
+
+[结束标签](@closing-tag)由 `</`，[标签名字]，可选的[空白]，`>` 组成。
+
+[HTML 注释](@html-comment)形如 `<!--text-->`。text 不以 `>` 或 `->` 开始，
+不以 `-` 结束，同时不包含 `--`。见
+[HTML5 标准](http://www.w3.org/TR/html5/syntax.html#comments)。
+
+[处理指令](@processing-instruction)由 `<?`，一串不包含 `?>` 的字符，`?>`
+组成。
+
+[声明](@declaration)由 `<!`，名字，一串不包含 `>` 的字符，`>` 组成。
+名字是一串大写的 ASCII 字母。
+
+[CDATA](@cdata-section)由 `<![CDATA[`，一串不包含 `]]>` 与 `]]>`
+的字符组成。
+
+[HTML 标签](@html-tag)由[开始标签]、[结束标签]、[HTML 注释]、[处理指令]、
+[声明]或[CDATA]组成。
+
+开始标签:
+
+.
+<a><bab><c2c>
+.
+<p><a><bab><c2c></p>
+.
+
+空元素:
+
+.
+<a/><b2/>
+.
+<p><a/><b2/></p>
+.
+
+可有[空白]：
+
+.
+<a  /><b2
+data="foo" >
+.
+<p><a  /><b2
+data="foo" ></p>
+.
+
+带有属性：
+
+.
+<a foo="bar" bam = 'baz <em>"</em>'
+_boolean zoop:33=zoop:33 />
+.
+<p><a foo="bar" bam = 'baz <em>"</em>'
+_boolean zoop:33=zoop:33 /></p>
+.
+
+无效标签名字不解析为 HTML：
+
+.
+<33> <__>
+.
+<p>&lt;33&gt; &lt;__&gt;</p>
+.
+
+无效属性名字:
+
+.
+<a h*#ref="hi">
+.
+<p>&lt;a h*#ref=&quot;hi&quot;&gt;</p>
+.
+
+无效属性值:
+
+.
+<a href="hi'> <a href=hi'>
+.
+<p>&lt;a href=&quot;hi'&gt; &lt;a href=hi'&gt;</p>
+.
+
+无效[空白]:
+
+.
+< a><
+foo><bar/ >
+.
+<p>&lt; a&gt;&lt;
+foo&gt;&lt;bar/ &gt;</p>
+.
+
+少了[空白]:
+
+.
+<a href='bar'title=title>
+.
+<p>&lt;a href='bar'title=title&gt;</p>
+.
+
+关闭标签:
+
+.
+</a>
+</foo >
+.
+<p></a>
+</foo ></p>
+.
+
+关闭标签内属性无效：
+
+.
+</a href="foo">
+.
+<p>&lt;/a href=&quot;foo&quot;&gt;</p>
+.
+
+注释：
+
+.
+foo <!-- this is a
+comment - with hyphen -->
+.
+<p>foo <!-- this is a
+comment - with hyphen --></p>
+.
+
+.
+foo <!-- not a comment -- two hyphens -->
+.
+<p>foo &lt;!-- not a comment -- two hyphens --&gt;</p>
+.
+
+不是注释：
+
+.
+foo <!--> foo -->
+
+foo <!-- foo--->
+.
+<p>foo &lt;!--&gt; foo --&gt;</p>
+<p>foo &lt;!-- foo---&gt;</p>
+.
+
+处理指令：
+
+.
+foo <?php echo $a; ?>
+.
+<p>foo <?php echo $a; ?></p>
+.
+
+声明：
+
+.
+foo <!ELEMENT br EMPTY>
+.
+<p>foo <!ELEMENT br EMPTY></p>
+.
+
+CDATA：
+
+.
+foo <![CDATA[>&<]]>
+.
+<p>foo <![CDATA[>&<]]></p>
+.
+
+在属性内的实体保留：
+
+.
+<a href="&ouml;">
+.
+<p><a href="&ouml;"></p>
+.
+
+在属性内不能用反斜杠转义：
+
+.
+<a href="\*">
+.
+<p><a href="\*"></p>
+.
+
+.
+<a href="\"">
+.
+<p>&lt;a href=&quot;&quot;&quot;&gt;</p>
+.
+
+## 硬换行
+
+换行符不在内联代码或 HTML 标签内，前面有两个或多个的空格，并且不在块的末尾，
+将解析为[硬换行](@hard-line-break) ，渲染为 HTML 时是一个 `<br />` 标签。
+
+.
+foo
+baz
+.
+<p>foo<br />
+baz</p>
+.
+
+这种方案更明显，[行结束符]前不放两个空格而是放一个反斜杠：
+
+.
+foo\
+baz
+.
+<p>foo<br />
+baz</p>
+.
+
+两个以上空格也可：
+
+.
+foo
+baz
+.
+<p>foo<br />
+baz</p>
+.
+
+下一行头部的空格忽略：
+
+.
+foo
+     bar
+.
+<p>foo<br />
+bar</p>
+.
+
+.
+foo\
+     bar
+.
+<p>foo<br />
+bar</p>
+.
+
+换行符可以出现在强调、链接及其它可包含行内元素的结构中：
+
+.
+*foo
+bar*
+.
+<p><em>foo<br />
+bar</em></p>
+.
+
+.
+*foo\
+bar*
+.
+<p><em>foo<br />
+bar</em></p>
+.
+
+换行符不能出现在内联代码内：
+
+.
+`code
+span`
+.
+<p><code>code span</code></p>
+.
+
+.
+`code\
+span`
+.
+<p><code>code\ span</code></p>
+.
+
+或 HTML 标签内：
+
+.
+<a href="foo
+bar">
+.
+<p><a href="foo
+bar"></p>
+.
+
+.
+<a href="foo\
+bar">
+.
+<p><a href="foo\
+bar"></p>
+.
+
+硬换行用于隔开块中的内联元素，不适用于段落或其它块的末尾：
+
+.
+foo\
+.
+<p>foo\</p>
+.
+
+.
+foo
+.
+<p>foo</p>
+.
+
+.
+### foo\
+.
+<h3>foo\</h3>
+.
+
+.
+### foo
+.
+<h3>foo</h3>
+.
+
+## 软换行
+
+换行符不在行内代码或 HTML 标签内，前面没有两个或以上的空格，将解析为
+软换行。渲染为 HTML 时是一个[行结束符]或空格。
+结果跟浏览器一样。下面例子使用行结束符。
+
+.
+foo
+baz
+.
+<p>foo
+baz</p>
+.
+
+在行尾及下一行头部的空格移除：
+
+.
+foo
+ baz
+.
+<p>foo
+baz</p>
+.
+
+符合规范的解析器将软换行符在HTML 中渲染为一个换行符或空格。
+
+解析器也可以提供选项将软换行按硬换行处理。
+
+## 文本内容
+
+任何在上述规则之外的字符将按纯文本内容处理。
+
+.
+hello $.;'there
+.
+<p>hello $.;'there</p>
+.
+
+.
+Foo χρῆν
+.
+<p>Foo χρῆν</p>
+.
+
+内部空格保持不变：
+
+.
+Multiple     spaces
+.
+<p>Multiple     spaces</p>
+.
+
+<!-- END TESTS -->
+
+# 附录 A: 解析策略 {-}
+
+## 概述 {-}
+
+解析过程有两个阶段：
+
+1. 第一阶段，从输入行构造文档的结构，分为段落，块引用，列表项等。
+不解析这些块的文本。链接引用定义经解析生成链接表。
+
+2. 第二阶段，将段落与标题的原生文本解析为一序列行内元素，字符串、内联代码、
+链接，强调等。链接引用使用第一阶段的链接表。
+
+## 文档树 {-}
+
+在处理过程中，文档呈现为一个块树。树的根是 `document` 块。`document` 可
+包含任意其它块作为它的子元素。块的最后一个子元素通常是开着的，后续输入行
+能改变它的内容。例如，下面是一个文档树，箭头标记的块是开着的：
+
+``` tree
+-> document
+  -> block_quote
+       paragraph
+         "Lorem ipsum dolor\nsit amet."
+    -> list (type=bullet tight=true bullet_char=-)
+         list_item
+           paragraph
+             "Qui *quodsi iracundia*"
+      -> list_item
+        -> paragraph
+             "aliquando id"
+```
+
+## 输入行怎样改变文档树 {-}
+
+输入行在解析时会影响文档树。根据行的内容分析行，将以下面一或数种方式
+改变文档：
+
+1. 一或多个开着的块被关闭。
+2. 一或多个新块被创建为最后开着的块的子元素。
+3. 文本添加给最后开着的块。
+
+一旦行合并到树中便可以抛弃，因此输入能以流的方式读取。
+
+其中过程，让我们来看看下面四行 Markdown 如何生成上面的树：
+
+``` markdown
+> Lorem ipsum dolor
+sit amet.
+> - Qui *quodsi iracundia*
+> - aliquando id
+```
+
+在最外层，我们的文档模型仅仅是
+
+``` tree
+-> document
+```
+
+第一行，
+
+``` markdown
+> Lorem ipsum dolor
+```
+
+导致生成一个 `block_quote` 块，作为开着的 `document` 块的子元素。
+并且一个 `paragraph` 块作为 `block_quote` 的子元素。
+于是文本加到最后开着的块，`block_quote`：
+
+``` tree
+-> document
+  -> block_quote
+    -> paragraph
+         "Lorem ipsum dolor"
+```
+
+下一行，
+
+``` markdown
+sit amet.
+```
+
+是开着的 `paragraph` 的懒惰延续，所以添加到段落中：
+
+``` tree
+-> document
+  -> block_quote
+    -> paragraph
+         "Lorem ipsum dolor\nsit amet."
+```
+
+第三行，
+
+``` markdown
+> - Qui *quodsi iracundia*
+```
+
+导致 `paragraph` 块关闭。一个新的 `list` 块打开为 `list` 的子元素，
+一个 `paragraph` 为 `list_item` 的子元素。于是文本添加到这个新的
+`paragraph`：
+
+``` tree
+-> document
+  -> block_quote
+       paragraph
+         "Lorem ipsum dolor\nsit amet."
+    -> list (type=bullet tight=true bullet_char=-)
+      -> list_item
+        -> paragraph
+             "Qui *quodsi iracundia*"
+```
+
+第四行，
+
+``` markdown
+> - aliquando id
+```
+
+导致 `list_item` 及它的子元素 `paragraph` 关闭。一个新的 `list_item`
+打开为 `list` 的子元素。一个 `paragraph` 添加为这个 `list_item` 的子
+元素，以包含文本。于是我们得到最终的树：
+
+``` tree
+-> document
+  -> block_quote
+       paragraph
+         "Lorem ipsum dolor\nsit amet."
+    -> list (type=bullet tight=true bullet_char=-)
+         list_item
+           paragraph
+             "Qui *quodsi iracundia*"
+      -> list_item
+        -> paragraph
+             "aliquando id"
+```
+
+## 从块结构到最终文档 {-}
+
+输入一旦解析完成，所有的开着的块将关闭。
+
+然后遍历树，访问每个节点，解析段落与标题的原生内容为内联元素。这时我们
+已能看到所有的链接引用定义，所以同时处理链接引用。
+
+``` tree
+document
+  block_quote
+    paragraph
+      str "Lorem ipsum dolor"
+      softbreak
+      str "sit amet."
+    list (type=bullet tight=true bullet_char=-)
+      list_item
+        paragraph
+          str "Qui "
+          emph
+            str "quodsi iracundia"
+      list_item
+        paragraph
+          str "aliquando id"
+```
+
+注意第一个段落的[行结束符]如何解析为软换行符。
+第一个列表项中的星号变成了 `emph`。
+
+根据渲染器，这个文档可渲染为 HTML 或其它格式。
